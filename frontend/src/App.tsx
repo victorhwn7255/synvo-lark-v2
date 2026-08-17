@@ -1,76 +1,131 @@
-import { useEffect, useState } from 'react'
-import { getServiceStatus, type ServiceStatus } from './api/status'
-import { ServiceStatusCard } from './components/ServiceStatusCard'
+import { useCallback, useEffect, useState } from 'react'
+import { larkApi, type LarkApi, type LarkConnection } from './api/lark'
+import { ConnectionPage } from './components/ConnectionPage'
+import { larkH5, type LarkH5Adapter } from './lark/h5'
 
-type ConnectionState =
+interface AppProps {
+  api?: LarkApi
+  h5?: LarkH5Adapter
+}
+
+type AppState =
   | { kind: 'loading' }
-  | { kind: 'ready'; status: ServiceStatus }
+  | { kind: 'ready'; connection: LarkConnection; error: string | null; busy: boolean }
   | { kind: 'error'; message: string }
 
-function App() {
-  const [attempt, setAttempt] = useState(0)
-  const [connection, setConnection] = useState<ConnectionState>({ kind: 'loading' })
+function App({ api = larkApi, h5 = larkH5 }: AppProps) {
+  const [state, setState] = useState<AppState>({ kind: 'loading' })
+  const [insideLark, setInsideLark] = useState(h5.isAvailable())
+
+  const authorize = useCallback(
+    async (connection: LarkConnection) => {
+      setState({ kind: 'ready', connection, error: null, busy: true })
+      try {
+        const bootstrap = await api.bootstrap()
+        if (!bootstrap.larkEnabled || !bootstrap.appId || !bootstrap.state) {
+          throw new Error('Lark authorization is not configured yet.')
+        }
+        const code = await h5.requestAuthorizationCode(bootstrap.appId, bootstrap.state)
+        const connected = await api.exchange(code, bootstrap.state, bootstrap.csrfToken)
+        setState({ kind: 'ready', connection: connected, error: null, busy: false })
+      } catch (error: unknown) {
+        setState({ kind: 'ready', connection, error: safeMessage(error), busy: false })
+      }
+    },
+    [api, h5],
+  )
+
+  const load = useCallback(
+    async (autoAuthorize: boolean, signal?: AbortSignal, h5Available = h5.isAvailable()) => {
+      setState({ kind: 'loading' })
+      try {
+        const connection = await api.getConnection(signal)
+        if (
+          autoAuthorize &&
+          h5Available &&
+          connection.larkEnabled &&
+          connection.userAuthorization === 'unauthorized'
+        ) {
+          await authorize(connection)
+          return
+        }
+        setState({ kind: 'ready', connection, error: null, busy: false })
+      } catch (error: unknown) {
+        if (signal?.aborted) return
+        setState({ kind: 'error', message: safeMessage(error) })
+      }
+    },
+    [api, authorize, h5],
+  )
 
   useEffect(() => {
     const controller = new AbortController()
-    setConnection({ kind: 'loading' })
+    const initialize = async () => {
+      const availableAtStartup = h5.isAvailable()
+      setInsideLark(availableAtStartup)
+      await load(true, controller.signal, availableAtStartup)
+      if (availableAtStartup || controller.signal.aborted) return
 
-    getServiceStatus(controller.signal)
-      .then((status) => setConnection({ kind: 'ready', status }))
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) {
-          return
-        }
-
-        const message = error instanceof Error ? error.message : 'Unexpected connection error'
-        setConnection({ kind: 'error', message })
-      })
-
+      const becameAvailable = await h5.waitUntilAvailable(controller.signal)
+      if (!becameAvailable || controller.signal.aborted) return
+      setInsideLark(true)
+      await load(true, controller.signal, true)
+    }
+    void initialize()
     return () => controller.abort()
-  }, [attempt])
+  }, [h5, load])
+
+  const signOut = async (connection: LarkConnection) => {
+    setState({ kind: 'ready', connection, error: null, busy: true })
+    try {
+      const bootstrap = await api.bootstrap()
+      const signedOut = await api.signOut(bootstrap.csrfToken)
+      setState({ kind: 'ready', connection: signedOut, error: null, busy: false })
+    } catch (error: unknown) {
+      setState({ kind: 'ready', connection, error: safeMessage(error), busy: false })
+    }
+  }
+
+  if (state.kind === 'loading') return <LoadingPage />
+  if (state.kind === 'error') return <ErrorPage message={state.message} onRetry={() => void load(true)} />
 
   return (
-    <main className="min-h-svh bg-slate-950 px-5 py-8 text-slate-100 sm:px-8 sm:py-12">
-      <div className="mx-auto flex min-h-[calc(100svh-4rem)] max-w-5xl flex-col">
-        <header className="flex items-center gap-3">
-          <div
-            aria-hidden="true"
-            className="grid size-10 place-items-center rounded-xl bg-cyan-400 font-semibold text-slate-950 shadow-lg shadow-cyan-400/20"
-          >
-            S
-          </div>
-          <div>
-            <p className="font-semibold tracking-tight">Synvo AI Assistant</p>
-            <p className="text-sm text-slate-400">Lark-native foundation</p>
-          </div>
-        </header>
+    <ConnectionPage
+      connection={state.connection}
+      insideLark={insideLark}
+      busy={state.busy}
+      error={state.error}
+      onConnect={() => void authorize(state.connection)}
+      onRetry={() => void authorize(state.connection)}
+      onSignOut={() => void signOut(state.connection)}
+    />
+  )
+}
 
-        <section className="my-auto grid gap-10 py-16 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
-          <div>
-            <p className="mb-4 text-sm font-medium uppercase tracking-[0.2em] text-cyan-300">
-              Phase 0
-            </p>
-            <h1 className="max-w-3xl text-4xl font-semibold tracking-[-0.04em] text-white sm:text-6xl">
-              The foundation is ready for useful agent workflows.
-            </h1>
-            <p className="mt-6 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-              React H5, Spring Boot, and PostgreSQL are connected through one small,
-              maintainable vertical slice.
-            </p>
-          </div>
-
-          <ServiceStatusCard
-            connection={connection}
-            onRetry={() => setAttempt((current) => current + 1)}
-          />
-        </section>
-
-        <footer className="border-t border-white/10 pt-5 text-sm text-slate-500">
-          Lark and model integrations remain safely disabled in this foundation phase.
-        </footer>
-      </div>
+function LoadingPage() {
+  return (
+    <main className="centered-state" role="status" aria-live="polite">
+      <div className="brand__mark brand__mark--large" aria-hidden="true"><span /><span /></div>
+      <div className="loading-line"><span /></div>
+      <h1>Preparing your Synvo workspace</h1>
+      <p>Checking the secure Lark connection…</p>
     </main>
   )
+}
+
+function ErrorPage({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <main className="centered-state" role="alert">
+      <div className="error-mark" aria-hidden="true">!</div>
+      <h1>Synvo is temporarily unavailable</h1>
+      <p>{message}</p>
+      <button className="button button--primary" type="button" onClick={onRetry}>Try again</button>
+    </main>
+  )
+}
+
+function safeMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'An unexpected connection error occurred.'
 }
 
 export default App

@@ -26,9 +26,42 @@ class ExternalIntegrationConfigurationTests {
 		RuntimeException failure = assertThrows(RuntimeException.class, () -> contextWith(
 				"synvo.lark.enabled=true",
 				"synvo.lark.app-id=",
-				"synvo.lark.app-secret=" + secret));
+				"synvo.lark.app-secret=" + secret,
+				"synvo.lark.pilot-open-id=ou-pilot",
+				"synvo.lark.token-encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="));
 
 		assertFalse(allMessages(failure).contains(secret));
+	}
+
+	@Test
+	void enabledLarkRequiresPilotAndValidEncryptionKey() {
+		RuntimeException failure = assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.lark.enabled=true",
+				"synvo.lark.app-id=cli-test",
+				"synvo.lark.app-secret=secret-test",
+				"synvo.lark.pilot-open-id=",
+				"synvo.lark.token-encryption-key=not-a-key"));
+
+		assertFalse(allMessages(failure).contains("secret-test"));
+		assertFalse(allMessages(failure).contains("not-a-key"));
+	}
+
+	@Test
+	void enabledLarkRequiresAnAppSecretAndRedactsAllConfiguredIdentifiers() {
+		String appId = "must-not-appear-app-id";
+		String pilotOpenId = "must-not-appear-open-id";
+		String encryptionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+		RuntimeException failure = assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.lark.enabled=true",
+				"synvo.lark.app-id=" + appId,
+				"synvo.lark.app-secret=",
+				"synvo.lark.pilot-open-id=" + pilotOpenId,
+				"synvo.lark.token-encryption-key=" + encryptionKey));
+
+		String messages = allMessages(failure);
+		assertFalse(messages.contains(appId));
+		assertFalse(messages.contains(pilotOpenId));
+		assertFalse(messages.contains(encryptionKey));
 	}
 
 	@Test

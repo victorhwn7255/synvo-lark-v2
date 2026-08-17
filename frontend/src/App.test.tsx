@@ -1,44 +1,196 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { getServiceStatus } from './api/status'
+import type { LarkApi, LarkConnection } from './api/lark'
+import type { LarkH5Adapter } from './lark/h5'
 
-vi.mock('./api/status', () => ({
-  getServiceStatus: vi.fn(),
-}))
+const unauthorized: LarkConnection = {
+  larkEnabled: true,
+  botConnection: 'connected',
+  userAuthorization: 'unauthorized',
+  user: null,
+}
 
-const getServiceStatusMock = vi.mocked(getServiceStatus)
+const connected: LarkConnection = {
+  larkEnabled: true,
+  botConnection: 'connected',
+  userAuthorization: 'connected',
+  user: { displayName: 'Victor' },
+}
 
 describe('App', () => {
   beforeEach(() => {
-    getServiceStatusMock.mockReset()
+    vi.restoreAllMocks()
   })
 
-  it('shows the backend readiness response', async () => {
-    getServiceStatusMock.mockResolvedValue({
-      service: 'synvo-backend',
-      status: 'ready',
+  afterEach(cleanup)
+
+  it('renders an intentional loading state before connection status arrives', () => {
+    const api = apiWith({
+      getConnection: vi.fn(() => new Promise<LarkConnection>(() => undefined)),
     })
 
-    render(<App />)
+    render(<App api={api} h5={h5OutsideLark()} />)
 
-    expect(screen.getByText('Connecting to backend')).toBeInTheDocument()
-    expect(await screen.findByText('Backend connected')).toBeInTheDocument()
-    expect(screen.getByText('synvo-backend · ready')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing your Synvo workspace')
+    expect(screen.getByText('Checking the secure Lark connection…')).toBeInTheDocument()
   })
 
-  it('shows an error and can retry', async () => {
-    getServiceStatusMock
+  it('shows separate connected bot and user authorization states', async () => {
+    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(connected) })} h5={h5OutsideLark()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(screen.getByText('Assistant channel')).toBeInTheDocument()
+    expect(screen.getByText('Live')).toBeInTheDocument()
+    expect(screen.getByText('Authorized')).toBeInTheDocument()
+    expect(screen.getByText('Browser preview')).toBeInTheDocument()
+  })
+
+  it('shows the safe browser-preview state outside Lark', async () => {
+    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(unauthorized) })} h5={h5OutsideLark()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Connect Synvo' })).toBeInTheDocument()
+    expect(screen.getByText('Open the Synvo Web App inside Lark to authorize.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled()
+  })
+
+  it('automatically completes the replaceable Lark H5 authorization flow', async () => {
+    const api = apiWith({
+      getConnection: vi.fn().mockResolvedValue(unauthorized),
+      bootstrap: vi.fn().mockResolvedValue({
+        larkEnabled: true,
+        appId: 'cli-public-id',
+        state: 'one-time-state',
+        csrfToken: 'csrf-token',
+      }),
+      exchange: vi.fn().mockResolvedValue(connected),
+    })
+    const h5: LarkH5Adapter = {
+      isAvailable: () => true,
+      waitUntilAvailable: vi.fn().mockResolvedValue(true),
+      requestAuthorizationCode: vi.fn().mockResolvedValue('short-lived-code'),
+    }
+
+    render(<App api={api} h5={h5} />)
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(h5.requestAuthorizationCode).toHaveBeenCalledWith('cli-public-id', 'one-time-state')
+    expect(api.exchange).toHaveBeenCalledWith('short-lived-code', 'one-time-state', 'csrf-token')
+    expect(screen.getByText('Running in Lark')).toBeInTheDocument()
+  })
+
+  it('authorizes when the Lark bridge becomes available after startup', async () => {
+    let bridgeReady: ((available: boolean) => void) | undefined
+    const api = apiWith({
+      getConnection: vi.fn().mockResolvedValue(unauthorized),
+      bootstrap: vi.fn().mockResolvedValue({
+        larkEnabled: true,
+        appId: 'cli-public-id',
+        state: 'late-state',
+        csrfToken: 'csrf-token',
+      }),
+      exchange: vi.fn().mockResolvedValue(connected),
+    })
+    const h5: LarkH5Adapter = {
+      isAvailable: () => false,
+      waitUntilAvailable: () => new Promise((resolve) => { bridgeReady = resolve }),
+      requestAuthorizationCode: vi.fn().mockResolvedValue('late-code'),
+    }
+
+    render(<App api={api} h5={h5} />)
+
+    expect(await screen.findByText('Browser preview')).toBeInTheDocument()
+    bridgeReady?.(true)
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(screen.getByText('Running in Lark')).toBeInTheDocument()
+    expect(api.exchange).toHaveBeenCalledWith('late-code', 'late-state', 'csrf-token')
+  })
+
+  it('offers a retry after a failed authorization exchange', async () => {
+    const api = apiWith({
+      getConnection: vi.fn().mockResolvedValue(unauthorized),
+      bootstrap: vi.fn().mockResolvedValue({
+        larkEnabled: true,
+        appId: 'cli-public-id',
+        state: 'state',
+        csrfToken: 'csrf',
+      }),
+      exchange: vi.fn()
+        .mockRejectedValueOnce(new Error('Authorization expired.'))
+        .mockResolvedValueOnce(connected),
+    })
+    const h5: LarkH5Adapter = {
+      isAvailable: () => true,
+      waitUntilAvailable: vi.fn().mockResolvedValue(true),
+      requestAuthorizationCode: vi.fn().mockResolvedValue('code'),
+    }
+
+    render(<App api={api} h5={h5} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Authorization expired.')
+    fireEvent.click(screen.getByRole('button', { name: 'Try authorization again' }))
+
+    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(api.exchange).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows reconnecting in text rather than color alone', async () => {
+    const reconnecting = { ...connected, botConnection: 'reconnecting' as const }
+    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(reconnecting) })} h5={h5OutsideLark()} />)
+
+    expect(await screen.findByText('Reconnecting')).toBeInTheDocument()
+    expect(screen.getByText('Restoring the Lark channel automatically.')).toBeInTheDocument()
+  })
+
+  it('recovers from a backend connection error', async () => {
+    const getConnection = vi.fn()
       .mockRejectedValueOnce(new Error('Network request failed'))
-      .mockResolvedValueOnce({ service: 'synvo-backend', status: 'ready' })
+      .mockResolvedValueOnce(connected)
 
-    render(<App />)
+    render(<App api={apiWith({ getConnection })} h5={h5OutsideLark()} />)
 
-    expect(await screen.findByText('Backend unavailable')).toBeInTheDocument()
-    expect(screen.getByText('Network request failed')).toBeInTheDocument()
-
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network request failed')
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+  })
 
-    expect(await screen.findByText('Backend connected')).toBeInTheDocument()
+  it('signs out of Synvo without writing any browser token storage', async () => {
+    const localStorageSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const api = apiWith({
+      getConnection: vi.fn().mockResolvedValue(connected),
+      bootstrap: vi.fn().mockResolvedValue({
+        larkEnabled: true,
+        appId: 'cli-public-id',
+        state: 'state',
+        csrfToken: 'csrf',
+      }),
+      signOut: vi.fn().mockResolvedValue(unauthorized),
+    })
+
+    render(<App api={api} h5={h5OutsideLark()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out of Synvo' }))
+
+    expect(await screen.findByRole('heading', { name: 'Connect Synvo' })).toBeInTheDocument()
+    expect(api.signOut).toHaveBeenCalledWith('csrf')
+    expect(localStorageSpy).not.toHaveBeenCalled()
   })
 })
+
+function apiWith(overrides: Partial<LarkApi>): LarkApi {
+  return {
+    getConnection: vi.fn().mockResolvedValue(connected),
+    bootstrap: vi.fn(),
+    exchange: vi.fn(),
+    signOut: vi.fn(),
+    ...overrides,
+  }
+}
+
+function h5OutsideLark(): LarkH5Adapter {
+  return {
+    isAvailable: () => false,
+    waitUntilAvailable: vi.fn().mockResolvedValue(false),
+    requestAuthorizationCode: vi.fn(),
+  }
+}

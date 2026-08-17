@@ -9,9 +9,20 @@ spring:
       connection-timeout: 3000
   lifecycle:
     timeout-per-shutdown-phase: 10s
+  flyway:
+    enabled: true
 
 server:
   shutdown: graceful
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        name: SYNVO_SESSION
+        http-only: true
+        same-site: strict
+        secure: ${SYNVO_SESSION_SECURE_COOKIE:${SYNVO_LARK_ENABLED:false}}
+      timeout: 8h
 
 management:
   endpoints:
@@ -24,11 +35,23 @@ management:
         enabled: true
       show-details: never
 
+logging:
+  level:
+    com.lark.oapi.service.authen.v1.resource: OFF
+    com.lark.oapi.ws.Client: WARN
+    com.lark.oapi.ws.Listener: WARN
+
 synvo:
   lark:
     enabled: ${SYNVO_LARK_ENABLED:false}
     app-id: ${SYNVO_LARK_APP_ID:}
     app-secret: ${SYNVO_LARK_APP_SECRET:}
+    transport: ${SYNVO_LARK_TRANSPORT:websocket}
+    pilot-open-id: ${SYNVO_LARK_PILOT_OPEN_ID:}
+    h5-base-url: ${SYNVO_LARK_H5_BASE_URL:}
+    token-encryption-key: ${SYNVO_TOKEN_ENCRYPTION_KEY:}
+    token-refresh-skew: ${SYNVO_LARK_TOKEN_REFRESH_SKEW:5m}
+    message-retention: ${SYNVO_LARK_MESSAGE_RETENTION:30d}
   model:
     enabled: ${SYNVO_MODEL_ENABLED:false}
     base-url: ${SYNVO_MODEL_BASE_URL:}
