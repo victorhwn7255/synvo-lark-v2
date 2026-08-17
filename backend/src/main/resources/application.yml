@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: synvo-assistant
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/synvo}
+    username: ${SPRING_DATASOURCE_USERNAME:synvo}
+    password: ${SPRING_DATASOURCE_PASSWORD:synvo_local}
+    hikari:
+      connection-timeout: 3000
+  lifecycle:
+    timeout-per-shutdown-phase: 10s
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+synvo:
+  lark:
+    enabled: ${SYNVO_LARK_ENABLED:false}
+    app-id: ${SYNVO_LARK_APP_ID:}
+    app-secret: ${SYNVO_LARK_APP_SECRET:}
+  model:
+    enabled: ${SYNVO_MODEL_ENABLED:false}
+    base-url: ${SYNVO_MODEL_BASE_URL:}
+    name: ${SYNVO_MODEL_NAME:}
+    api-key: ${SYNVO_MODEL_API_KEY:}
