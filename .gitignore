@@ -126,3 +126,4 @@ $RECYCLE.BIN/
 .sonar/
 .gradle/
 reports/
+tasks/
