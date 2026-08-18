@@ -15,7 +15,7 @@ const connected: LarkConnection = {
   larkEnabled: true,
   botConnection: 'connected',
   userAuthorization: 'connected',
-  user: { displayName: 'Victor' },
+  user: { displayName: 'Victor', avatarUrl: 'https://example.com/victor.png' },
 }
 
 describe('App', () => {
@@ -36,14 +36,13 @@ describe('App', () => {
     expect(screen.getByText('Checking the secure Lark connection…')).toBeInTheDocument()
   })
 
-  it('shows separate connected bot and user authorization states', async () => {
+  it('routes an authorized user into the workspace without duplicating Lark identity', async () => {
     render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(connected) })} h5={h5OutsideLark()} />)
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
-    expect(screen.getByText('Assistant channel')).toBeInTheDocument()
-    expect(screen.getByText('Live')).toBeInTheDocument()
-    expect(screen.getByText('Authorized')).toBeInTheDocument()
-    expect(screen.getByText('Browser preview')).toBeInTheDocument()
+    expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument()
+    expect(screen.queryByText('Welcome, Victor')).not.toBeInTheDocument()
+    expect(screen.queryByText('Running in Lark')).not.toBeInTheDocument()
   })
 
   it('shows the safe browser-preview state outside Lark', async () => {
@@ -73,10 +72,10 @@ describe('App', () => {
 
     render(<App api={api} h5={h5} />)
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
     expect(h5.requestAuthorizationCode).toHaveBeenCalledWith('cli-public-id', 'one-time-state')
     expect(api.exchange).toHaveBeenCalledWith('short-lived-code', 'one-time-state', 'csrf-token')
-    expect(screen.getByText('Running in Lark')).toBeInTheDocument()
+    expect(screen.queryByText('Running in Lark')).not.toBeInTheDocument()
   })
 
   it('authorizes when the Lark bridge becomes available after startup', async () => {
@@ -102,8 +101,8 @@ describe('App', () => {
     expect(await screen.findByText('Browser preview')).toBeInTheDocument()
     bridgeReady?.(true)
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
-    expect(screen.getByText('Running in Lark')).toBeInTheDocument()
+    expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
+    expect(screen.queryByText('Running in Lark')).not.toBeInTheDocument()
     expect(api.exchange).toHaveBeenCalledWith('late-code', 'late-state', 'csrf-token')
   })
 
@@ -131,7 +130,7 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Authorization expired.')
     fireEvent.click(screen.getByRole('button', { name: 'Try authorization again' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
     expect(api.exchange).toHaveBeenCalledTimes(2)
   })
 
@@ -139,8 +138,7 @@ describe('App', () => {
     const reconnecting = { ...connected, botConnection: 'reconnecting' as const }
     render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(reconnecting) })} h5={h5OutsideLark()} />)
 
-    expect(await screen.findByText('Reconnecting')).toBeInTheDocument()
-    expect(screen.getByText('Restoring the Lark channel automatically.')).toBeInTheDocument()
+    expect(await screen.findByText('The assistant channel is reconnecting automatically.')).toBeInTheDocument()
   })
 
   it('recovers from a backend connection error', async () => {
@@ -152,7 +150,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Network request failed')
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('heading', { name: 'Welcome, Victor' })).toBeInTheDocument()
+    expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
   })
 
   it('signs out of Synvo without writing any browser token storage', async () => {
@@ -169,7 +167,8 @@ describe('App', () => {
     })
 
     render(<App api={api} h5={h5OutsideLark()} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign out of Synvo' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect Synvo' }))
 
     expect(await screen.findByRole('heading', { name: 'Connect Synvo' })).toBeInTheDocument()
     expect(api.signOut).toHaveBeenCalledWith('csrf')

@@ -8,6 +8,7 @@ import com.lark.oapi.channel.model.NormalizedMessage;
 import com.lark.oapi.channel.model.SendInput;
 import com.lark.oapi.channel.model.SendOptions;
 import com.lark.oapi.channel.model.SendResult;
+import com.lark.oapi.channel.model.StreamInput;
 import com.lark.oapi.core.enums.BaseUrlEnum;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -30,11 +31,16 @@ final class OfficialLarkChannelClient implements LarkChannelClient {
 		policy.setGroupAllowlist();
 		policy.setRequireMention(true);
 
+		LarkChannelOptions.OutboundConfig outbound = new LarkChannelOptions.OutboundConfig();
+		outbound.setStreamThrottleMs(150);
+		outbound.setStreamThrottleChars(Integer.MAX_VALUE);
+
 		LarkChannelOptions options = LarkChannelOptions
 				.newBuilder(properties.appId(), properties.appSecret())
 				.transport(properties.transport())
 				.domain(BaseUrlEnum.LarkSuite.getUrl())
 				.policy(policy)
+				.outbound(outbound)
 				.source("synvo-assistant")
 				.includeRawEvent(false)
 				.build();
@@ -71,6 +77,18 @@ final class OfficialLarkChannelClient implements LarkChannelClient {
 				: channel.send(message.chatId(), SendInput.text(text), options);
 		return response
 				.thenApply(result -> result.getMessageId());
+	}
+
+	@Override
+	public CompletableFuture<String> stream(InboundLarkMessage message, StreamProducer producer) {
+		SendOptions options = responseOptions(message);
+		StreamInput input = StreamInput.card(
+				SynvoLarkStreamCard.initialCard(),
+				controller -> producer.produce(new SynvoLarkStreamCard(controller)));
+		CompletableFuture<SendResult> response = options == null
+				? channel.stream(message.chatId(), input)
+				: channel.stream(message.chatId(), input, options);
+		return response.thenApply(SendResult::getMessageId);
 	}
 
 	static SendOptions responseOptions(InboundLarkMessage message) {

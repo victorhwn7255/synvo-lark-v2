@@ -11,6 +11,49 @@ architecture, simplicity principles, and non-goals.
 If a requested change conflicts with those decisions, identify the conflict
 before implementing it. Do not silently expand the project scope.
 
+Before implementing a phase, also read its authoritative specification in
+`docs/specs/`.
+
+## Development Lessons
+
+`docs/LESSONS.md` records confirmed development mistakes, root causes,
+solutions, and preventive rules that are likely to remain useful across future
+tasks.
+
+- Before changing an area of the system, review any applicable lessons.
+- Add or update a lesson only after the root cause is confirmed.
+- Record durable failure patterns and preventive rules, not every ordinary bug
+  or temporary debugging step.
+- Include the regression coverage or live verification that proves the lesson
+  has been applied.
+- Never include credentials, tokens, sensitive enterprise content, unredacted
+  prompts, personal data, or large debugging logs.
+- Lessons supplement but do not replace `docs/project-overview.md`, phase
+  specifications, source-code documentation, or tests.
+
+## Lightweight Spec-Driven Development
+
+- `docs/project-overview.md` is the authoritative lightweight product
+  requirements document.
+- `docs/specs/` contains the authoritative, version-controlled phase
+  specifications.
+- Each phase specification uses one lifecycle status: `Draft`, `Approved`,
+  `In Progress`, or `Complete`.
+- Define the phase purpose, decisions, objectives, scope, deliverables, test
+  plan, acceptance criteria, and explicit non-goals before implementation.
+- Do not implement a phase while its specification is `Draft`. The user must
+  approve the specification first.
+- Design acceptance tests before implementation, run focused tests throughout
+  implementation, and run complete verification before phase closure.
+- `tasks/` contains ignored, temporary execution notes only. It is not an
+  authoritative source of product requirements and must not duplicate an
+  entire phase specification.
+- Record final verification evidence and any explicit user-approved waiver in
+  the phase specification's Completion Audit before marking it `Complete`.
+- Update `docs/project-overview.md` only when an approved change affects the
+  long-term product direction, MVP scope, technology direction, architecture,
+  simplicity principles, or non-goals.
+
 ## Product Scope
 
 Synvo is a Lark-native AI assistant with two MVP workflows:
@@ -175,6 +218,9 @@ Update `docs/project-overview.md` only when an approved change affects:
 
 Keep implementation details in focused technical documents rather than
 expanding the project overview into a development manual.
+
+Use `docs/LESSONS.md` for confirmed, reusable engineering lessons. Keep
+temporary investigation notes in the ignored `tasks/` directory.
 
 ## Code Review Priorities
 

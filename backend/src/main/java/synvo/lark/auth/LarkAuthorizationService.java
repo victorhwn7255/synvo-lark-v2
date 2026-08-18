@@ -44,7 +44,8 @@ public class LarkAuthorizationService {
 		requirePilot(tokens.openId());
 		LarkUserConnection connection = encrypt(tokens);
 		connectionRepository.save(connection);
-		return new AuthorizedConnection(connection.openId(), connection.displayName());
+		return new AuthorizedConnection(
+				connection.openId(), connection.displayName(), tokens.avatarUrl());
 	}
 
 	public String getValidAccessToken() {
@@ -122,7 +123,7 @@ public class LarkAuthorizationService {
 		}
 	}
 
-	public record AuthorizedConnection(String openId, String displayName) {
+	public record AuthorizedConnection(String openId, String displayName, String avatarUrl) {
 	}
 
 	public static final class AuthorizationCodeReplayException extends RuntimeException {

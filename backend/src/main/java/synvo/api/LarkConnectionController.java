@@ -23,31 +23,27 @@ import synvo.configuration.LarkProperties;
 import synvo.lark.auth.LarkAuthorizationException;
 import synvo.lark.auth.LarkAuthorizationService;
 import synvo.lark.channel.LarkConnectionStatus;
-import synvo.persistence.LarkUserConnection;
-import synvo.persistence.LarkUserConnectionRepository;
 
 @RestController
 @RequestMapping("/api/lark")
 class LarkConnectionController {
 
 	private static final String AUTH_FLOW_STATE = "larkAuthorizationState";
-	private static final String AUTHORIZED_OPEN_ID = "authorizedLarkOpenId";
-	private static final String AUTHORIZED_DISPLAY_NAME = "authorizedLarkDisplayName";
 
 	private final LarkProperties properties;
 	private final LarkConnectionStatus connectionStatus;
-	private final LarkUserConnectionRepository connectionRepository;
+	private final LarkSessionAccess sessionAccess;
 	private final ObjectProvider<LarkAuthorizationService> authorizationService;
 	private final SecureRandom secureRandom = new SecureRandom();
 
 	LarkConnectionController(
 			LarkProperties properties,
 			LarkConnectionStatus connectionStatus,
-			LarkUserConnectionRepository connectionRepository,
+			LarkSessionAccess sessionAccess,
 			ObjectProvider<LarkAuthorizationService> authorizationService) {
 		this.properties = properties;
 		this.connectionStatus = connectionStatus;
-		this.connectionRepository = connectionRepository;
+		this.sessionAccess = sessionAccess;
 		this.authorizationService = authorizationService;
 	}
 
@@ -88,8 +84,8 @@ class LarkConnectionController {
 		}
 		LarkAuthorizationService.AuthorizedConnection authorized = service.authorize(requestBody.code());
 		request.changeSessionId();
-		session.setAttribute(AUTHORIZED_OPEN_ID, authorized.openId());
-		session.setAttribute(AUTHORIZED_DISPLAY_NAME, authorized.displayName());
+		sessionAccess.establish(
+				session, authorized.openId(), authorized.displayName(), authorized.avatarUrl());
 		return currentConnection(session);
 	}
 
@@ -108,20 +104,10 @@ class LarkConnectionController {
 		SafeUser user = null;
 		if (properties.enabled()) {
 			authorizationState = "unauthorized";
-			Object sessionOpenId = session.getAttribute(AUTHORIZED_OPEN_ID);
-			if (properties.pilotOpenId().equals(sessionOpenId)) {
-				LarkUserConnection connection = connectionRepository
-						.findByOpenId(properties.pilotOpenId())
-						.orElse(null);
-				if (connection != null
-						&& connection.connectionStatus() == LarkUserConnection.ConnectionStatus.ACTIVE) {
-					authorizationState = "connected";
-					user = new SafeUser((String) session.getAttribute(AUTHORIZED_DISPLAY_NAME));
-				}
-				else {
-					session.removeAttribute(AUTHORIZED_OPEN_ID);
-					session.removeAttribute(AUTHORIZED_DISPLAY_NAME);
-				}
+			LarkSessionAccess.AuthorizedUser authorized = sessionAccess.current(session).orElse(null);
+			if (authorized != null) {
+				authorizationState = "connected";
+				user = new SafeUser(authorized.displayName(), authorized.avatarUrl());
 			}
 		}
 		return new ConnectionResponse(
@@ -177,7 +163,7 @@ class LarkConnectionController {
 			SafeUser user) {
 	}
 
-	record SafeUser(String displayName) {
+	record SafeUser(String displayName, String avatarUrl) {
 	}
 
 	record ApiError(String code, String message) {

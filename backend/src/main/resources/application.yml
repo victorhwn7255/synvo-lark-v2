@@ -42,6 +42,8 @@ logging:
     com.lark.oapi.ws.Listener: WARN
 
 synvo:
+  agent:
+    response-timeout: ${SYNVO_AGENT_RESPONSE_TIMEOUT:120s}
   lark:
     enabled: ${SYNVO_LARK_ENABLED:false}
     app-id: ${SYNVO_LARK_APP_ID:}

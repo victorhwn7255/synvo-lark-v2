@@ -9,7 +9,7 @@ describe('larkApi', () => {
       larkEnabled: true,
       botConnection: 'connected',
       userAuthorization: 'connected',
-      user: { displayName: 'Victor' },
+      user: { displayName: 'Victor', avatarUrl: 'https://example.com/victor.png' },
     }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -27,7 +27,7 @@ describe('larkApi', () => {
       larkEnabled: true,
       botConnection: 'connected',
       userAuthorization: 'connected',
-      user: { displayName: 'Victor' },
+      user: { displayName: 'Victor', avatarUrl: 'https://example.com/victor.png' },
     }))
     vi.stubGlobal('fetch', fetchMock)
 

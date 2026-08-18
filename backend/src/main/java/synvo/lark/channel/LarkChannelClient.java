@@ -15,6 +15,21 @@ public interface LarkChannelClient {
 
 	CompletableFuture<String> respond(InboundLarkMessage message, String text);
 
+	CompletableFuture<String> stream(InboundLarkMessage message, StreamProducer producer);
+
+	@FunctionalInterface
+	interface StreamProducer {
+
+		void produce(StreamWriter writer);
+	}
+
+	interface StreamWriter {
+
+		void append(String delta);
+
+		void setContent(String content);
+	}
+
 	record BotProfile(String openId, String displayName) {
 	}
 

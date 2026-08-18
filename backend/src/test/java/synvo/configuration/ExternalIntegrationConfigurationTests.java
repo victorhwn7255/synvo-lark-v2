@@ -76,6 +76,36 @@ class ExternalIntegrationConfigurationTests {
 		assertFalse(allMessages(failure).contains(secret));
 	}
 
+	@Test
+	void enabledModelRejectsAnInvalidEndpointWithoutLeakingIt() {
+		String invalidEndpoint = "must-not-appear-invalid-model-endpoint";
+		RuntimeException failure = assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.model.enabled=true",
+				"synvo.model.base-url=" + invalidEndpoint,
+				"synvo.model.name=nvidia/nemotron-3-super-120b-a12b",
+				"synvo.model.api-key=test-key"));
+
+		assertFalse(allMessages(failure).contains(invalidEndpoint));
+	}
+
+	@Test
+	void agentTimeoutUsesASafeDefaultAndRejectsOutOfRangeValues() {
+		try (AnnotationConfigApplicationContext context = contextWith(
+				"synvo.lark.enabled=false",
+				"synvo.model.enabled=false")) {
+			assertNotNull(context.getBean(AgentRuntimeProperties.class).responseTimeout());
+		}
+
+		assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.agent.response-timeout=999ms",
+				"synvo.lark.enabled=false",
+				"synvo.model.enabled=false"));
+		assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.agent.response-timeout=11m",
+				"synvo.lark.enabled=false",
+				"synvo.model.enabled=false"));
+	}
+
 	private AnnotationConfigApplicationContext contextWith(String... properties) {
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
 		TestPropertyValues.of(properties).applyTo(context);

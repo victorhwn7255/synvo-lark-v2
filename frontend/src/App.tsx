@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { larkApi, type LarkApi, type LarkConnection } from './api/lark'
 import { ConnectionPage } from './components/ConnectionPage'
+import { Workspace } from './components/Workspace'
 import { larkH5, type LarkH5Adapter } from './lark/h5'
 
 interface AppProps {
@@ -88,6 +89,17 @@ function App({ api = larkApi, h5 = larkH5 }: AppProps) {
 
   if (state.kind === 'loading') return <LoadingPage />
   if (state.kind === 'error') return <ErrorPage message={state.message} onRetry={() => void load(true)} />
+
+  if (state.connection.userAuthorization === 'connected') {
+    return (
+      <Workspace
+        botConnection={state.connection.botConnection}
+        busy={state.busy}
+        userAvatarUrl={state.connection.user?.avatarUrl ?? null}
+        onSignOut={() => void signOut(state.connection)}
+      />
+    )
+  }
 
   return (
     <ConnectionPage

@@ -1,5 +1,7 @@
 package synvo.configuration;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import jakarta.validation.constraints.AssertTrue;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.StringUtils;
@@ -14,9 +16,9 @@ public record ModelProperties(
 		String apiKey
 ) {
 
-	@AssertTrue(message = "Model base URL, name, and API key are required when the model is enabled")
+	@AssertTrue(message = "A valid model base URL, name, and API key are required when the model is enabled")
 	public boolean isConfigurationValid() {
-		return !enabled || (StringUtils.hasText(baseUrl)
+		return !enabled || (isHttpUrl(baseUrl)
 				&& StringUtils.hasText(name)
 				&& StringUtils.hasText(apiKey));
 	}
@@ -29,5 +31,20 @@ public record ModelProperties(
 
 	private static String redact(String value) {
 		return StringUtils.hasText(value) ? "[configured]" : "[not configured]";
+	}
+
+	private static boolean isHttpUrl(String value) {
+		if (!StringUtils.hasText(value)) {
+			return false;
+		}
+		try {
+			URI uri = new URI(value);
+			return ("http".equalsIgnoreCase(uri.getScheme())
+					|| "https".equalsIgnoreCase(uri.getScheme()))
+					&& StringUtils.hasText(uri.getHost());
+		}
+		catch (URISyntaxException invalid) {
+			return false;
+		}
 	}
 }

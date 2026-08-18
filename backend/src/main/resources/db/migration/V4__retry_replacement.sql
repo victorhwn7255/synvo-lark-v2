@@ -1,0 +1,3 @@
+ALTER TABLE conversation_turn
+    ADD COLUMN superseded BOOLEAN NOT NULL DEFAULT FALSE;
+

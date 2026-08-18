@@ -31,12 +31,13 @@ class LarkConnectionControllerTests {
 		ObjectProvider<LarkAuthorizationService> provider = mock(ObjectProvider.class);
 		when(provider.getIfAvailable()).thenReturn(authorization);
 		when(authorization.authorize("single-use-code"))
-				.thenReturn(new LarkAuthorizationService.AuthorizedConnection("ou-victor", "Victor"));
+				.thenReturn(new LarkAuthorizationService.AuthorizedConnection(
+						"ou-victor", "Victor", "https://example.com/victor.png"));
 		when(connections.findByOpenId("ou-victor")).thenReturn(Optional.of(activeConnection()));
 		LarkConnectionController controller = new LarkConnectionController(
 				properties,
 				new LarkConnectionStatus(properties),
-				connections,
+				new LarkSessionAccess(properties, connections),
 				provider);
 		MockHttpSession session = new MockHttpSession();
 		CsrfToken csrfToken = mock(CsrfToken.class);
@@ -54,6 +55,7 @@ class LarkConnectionControllerTests {
 		assertEquals("csrf-token", bootstrap.csrfToken());
 		assertEquals("connected", response.userAuthorization());
 		assertEquals("Victor", response.user().displayName());
+		assertEquals("https://example.com/victor.png", response.user().avatarUrl());
 		assertEquals("ou-victor", session.getAttribute("authorizedLarkOpenId"));
 	}
 

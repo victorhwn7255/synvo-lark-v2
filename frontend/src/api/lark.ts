@@ -11,7 +11,7 @@ export interface LarkConnection {
   larkEnabled: boolean
   botConnection: BotConnection
   userAuthorization: UserAuthorization
-  user: { displayName: string } | null
+  user: { displayName: string; avatarUrl: string | null } | null
 }
 
 export interface AuthorizationBootstrap {
@@ -93,7 +93,11 @@ function isLarkConnection(value: unknown): value is LarkConnection {
     typeof value.larkEnabled === 'boolean' &&
     botStates.includes(value.botConnection as BotConnection) &&
     userStates.includes(value.userAuthorization as UserAuthorization) &&
-    (user === null || (isRecord(user) && typeof user.displayName === 'string'))
+    (user === null || (
+      isRecord(user) &&
+      typeof user.displayName === 'string' &&
+      (typeof user.avatarUrl === 'string' || user.avatarUrl === null)
+    ))
   )
 }
 

@@ -22,8 +22,9 @@ conversation memory, Lark Cards, and agent workflows remain disabled.
 - Database: PostgreSQL 18 with Flyway migrations
 - Local runtime: Docker Compose
 
-The product and architecture reference is
-[`docs/project-overview.md`](docs/project-overview.md).
+The lightweight product requirements and architecture reference is
+[`docs/project-overview.md`](docs/project-overview.md). Authoritative phase
+specifications live in [`docs/specs/`](docs/specs/).
 
 ## Run the ordinary local stack
 

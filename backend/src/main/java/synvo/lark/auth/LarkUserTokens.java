@@ -6,6 +6,7 @@ public record LarkUserTokens(
 		String openId,
 		String tenantKey,
 		String displayName,
+		String avatarUrl,
 		String accessToken,
 		String refreshToken,
 		Instant accessExpiresAt,

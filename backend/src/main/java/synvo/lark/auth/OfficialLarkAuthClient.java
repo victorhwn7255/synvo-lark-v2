@@ -133,9 +133,17 @@ final class OfficialLarkAuthClient implements LarkAuthClient {
 				identity.getOpenId(),
 				identity.getTenantKey(),
 				identity.getName(),
+				firstNonBlank(identity.getAvatarThumb(), identity.getAvatarUrl()),
 				accessToken,
 				refreshToken,
 				now.plusSeconds(accessExpiresIn),
 				now.plusSeconds(refreshExpiresIn));
+	}
+
+	private static String firstNonBlank(String preferred, String fallback) {
+		if (StringUtils.hasText(preferred)) {
+			return preferred;
+		}
+		return StringUtils.hasText(fallback) ? fallback : null;
 	}
 }

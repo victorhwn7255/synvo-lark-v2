@@ -6,7 +6,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import synvo.configuration.LarkProperties;
+import synvo.configuration.AgentRuntimeProperties;
+import synvo.agent.SynvoAgentCore;
 import synvo.lark.channel.LarkChannelClient.Signal;
+import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,7 +22,9 @@ class LarkChannelLifecycleTests {
 		FakeChannelClient client = new FakeChannelClient();
 		LarkConnectionStatus status = new LarkConnectionStatus(properties());
 		LarkDirectMessageHandler handler = new LarkDirectMessageHandler(
-				properties(), mock(LarkMessageProcessingRepository.class), client);
+				properties(), mock(LarkMessageProcessingRepository.class),
+				mock(LarkConversationBindingRepository.class), client,
+				mock(SynvoAgentCore.class), new AgentRuntimeProperties(Duration.ofMinutes(2)));
 		LarkChannelLifecycle lifecycle = new LarkChannelLifecycle(client, handler, status);
 
 		lifecycle.connect();
@@ -43,7 +48,9 @@ class LarkChannelLifecycleTests {
 		client.connectResult = CompletableFuture.failedFuture(new IllegalStateException("offline"));
 		LarkConnectionStatus status = new LarkConnectionStatus(properties());
 		LarkDirectMessageHandler handler = new LarkDirectMessageHandler(
-				properties(), mock(LarkMessageProcessingRepository.class), client);
+				properties(), mock(LarkMessageProcessingRepository.class),
+				mock(LarkConversationBindingRepository.class), client,
+				mock(SynvoAgentCore.class), new AgentRuntimeProperties(Duration.ofMinutes(2)));
 
 		new LarkChannelLifecycle(client, handler, status).connect();
 
@@ -86,6 +93,13 @@ class LarkChannelLifecycleTests {
 		@Override
 		public CompletableFuture<String> respond(InboundLarkMessage message, String text) {
 			return CompletableFuture.completedFuture("reply-test");
+		}
+
+		@Override
+		public CompletableFuture<String> stream(
+				InboundLarkMessage message,
+				StreamProducer producer) {
+			return CompletableFuture.completedFuture("stream-test");
 		}
 
 		void signal(Signal signal) {

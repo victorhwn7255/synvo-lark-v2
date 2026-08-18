@@ -52,6 +52,7 @@ class LarkAuthorizationServiceTests {
 
 		assertEquals(PILOT, authorized.openId());
 		assertEquals("Victor", authorized.displayName());
+		assertEquals("https://example.com/victor.png", authorized.avatarUrl());
 		ArgumentCaptor<LarkUserConnection> captor = ArgumentCaptor.forClass(LarkUserConnection.class);
 		verify(connectionRepository).save(captor.capture());
 		LarkUserConnection stored = captor.getValue();
@@ -148,6 +149,7 @@ class LarkAuthorizationServiceTests {
 				openId,
 				"tenant-synvo",
 				"Victor",
+				"https://example.com/victor.png",
 				accessToken,
 				refreshToken,
 				Instant.now().plus(accessLifetime),
