@@ -16,9 +16,8 @@ import synvo.agent.AgentIntent;
 import synvo.agent.AgentLifecycleEvent;
 import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationResult;
-import synvo.agent.SynvoAgentCore;
+import synvo.agent.ConversationRunCoordinator;
 import synvo.configuration.LarkProperties;
-import synvo.configuration.AgentRuntimeProperties;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
 
@@ -35,7 +34,7 @@ class LarkDirectMessageHandlerTests {
 	private LarkMessageProcessingRepository repository;
 	private LarkConversationBindingRepository conversationBindings;
 	private LarkChannelClient channelClient;
-	private SynvoAgentCore agentCore;
+	private ConversationRunCoordinator conversations;
 	private LarkDirectMessageHandler handler;
 
 	@BeforeEach
@@ -43,10 +42,9 @@ class LarkDirectMessageHandlerTests {
 		repository = mock(LarkMessageProcessingRepository.class);
 		conversationBindings = mock(LarkConversationBindingRepository.class);
 		channelClient = mock(LarkChannelClient.class);
-		agentCore = mock(SynvoAgentCore.class);
+		conversations = mock(ConversationRunCoordinator.class);
 		handler = new LarkDirectMessageHandler(
-				properties(), repository, conversationBindings, channelClient, agentCore,
-				new AgentRuntimeProperties(Duration.ofMinutes(2)));
+				properties(), repository, conversationBindings, channelClient, conversations);
 		handler.setBotOpenId("ou-bot");
 	}
 
@@ -64,7 +62,7 @@ class LarkDirectMessageHandlerTests {
 			producer.produce(writer);
 			return CompletableFuture.completedFuture("reply-1");
 		});
-		when(agentCore.converseStreaming(any(), any(), any())).thenAnswer(invocation -> {
+		when(conversations.run(any(), any())).thenAnswer(invocation -> {
 			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(1);
 			listener.accept(new AgentLifecycleEvent(1, AgentLifecycleEvent.State.ACCEPTED, "Request accepted"));
 			listener.accept(new AgentLifecycleEvent(2, AgentLifecycleEvent.State.STREAMING, "Writing a response"));
@@ -78,7 +76,7 @@ class LarkDirectMessageHandlerTests {
 		handler.handle(message);
 
 		ArgumentCaptor<ConversationRequest> request = ArgumentCaptor.forClass(ConversationRequest.class);
-		verify(agentCore).converseStreaming(request.capture(), any(), any());
+		verify(conversations).run(request.capture(), any());
 		assertEquals("m-1", request.getValue().requestId());
 		assertEquals("hello", request.getValue().content());
 		assertEquals("Hello Victor.", writer.content.toString());
@@ -99,7 +97,7 @@ class LarkDirectMessageHandlerTests {
 			producer.produce(writer);
 			return CompletableFuture.completedFuture("reply-failure");
 		});
-		when(agentCore.converseStreaming(any(), any(), any())).thenAnswer(invocation -> {
+		when(conversations.run(any(), any())).thenAnswer(invocation -> {
 			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(1);
 			listener.accept(AgentLifecycleEvent.contentDelta(1, "Partial private output"));
 			listener.accept(new AgentLifecycleEvent(
@@ -129,7 +127,7 @@ class LarkDirectMessageHandlerTests {
 
 		handler.handle(message);
 
-		verify(agentCore, never()).converseStreaming(any(), any(), any());
+		verify(conversations, never()).run(any(), any());
 		verify(channelClient).respond(message, LarkDirectMessageHandler.DELIVERY_FAILURE_REPLY);
 		verify(repository).markReplied("m-stream-failure", "fallback-reply");
 		verify(repository, never()).markFailed(any(), any());
@@ -190,7 +188,7 @@ class LarkDirectMessageHandlerTests {
 
 		verify(channelClient, never()).respond(any(), any());
 		verify(channelClient, never()).stream(any(), any());
-		verify(agentCore, never()).converseStreaming(any(), any(), any());
+		verify(conversations, never()).run(any(), any());
 	}
 
 	private static ConversationResult result(

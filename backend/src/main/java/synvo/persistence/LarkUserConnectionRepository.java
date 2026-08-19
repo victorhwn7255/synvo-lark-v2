@@ -12,6 +12,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class LarkUserConnectionRepository {
 
+	private static final String OPEN_ID_PARAMETER = "openId";
+
 	private final JdbcClient jdbcClient;
 
 	public LarkUserConnectionRepository(JdbcClient jdbcClient) {
@@ -40,7 +42,7 @@ public class LarkUserConnectionRepository {
 				    connection_status = EXCLUDED.connection_status,
 				    updated_at = EXCLUDED.updated_at
 				""")
-				.param("openId", connection.openId())
+				.param(OPEN_ID_PARAMETER, connection.openId())
 				.param("tenantKey", connection.tenantKey())
 				.param("displayName", connection.displayName())
 				.param("accessTokenCiphertext", connection.accessTokenCiphertext())
@@ -60,7 +62,7 @@ public class LarkUserConnectionRepository {
 				FROM lark_user_connection
 				WHERE open_id = :openId
 				""")
-				.param("openId", openId)
+				.param(OPEN_ID_PARAMETER, openId)
 				.query(LarkUserConnectionRepository::mapConnection)
 				.optional();
 	}
@@ -71,7 +73,7 @@ public class LarkUserConnectionRepository {
 				SET connection_status = 'REAUTHORIZATION_REQUIRED', updated_at = :now
 				WHERE open_id = :openId
 				""")
-				.param("openId", openId)
+				.param(OPEN_ID_PARAMETER, openId)
 				.param("now", atUtc(Instant.now()))
 				.update();
 	}

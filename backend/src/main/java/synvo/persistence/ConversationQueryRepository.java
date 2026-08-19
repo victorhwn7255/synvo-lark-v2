@@ -11,18 +11,24 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import synvo.agent.AgentIntent;
+import synvo.agent.ConversationQueries;
 
 @Repository
-public class ConversationQueryRepository {
+class ConversationQueryRepository implements ConversationQueries {
 
 	private static final int RECENT_LIMIT = 50;
+	private static final String OWNER_OPEN_ID_PARAMETER = "ownerOpenId";
+	private static final String CONVERSATION_ID_PARAMETER = "conversationId";
+	private static final String CONVERSATION_ID_COLUMN = "conversation_id";
+	private static final String UPDATED_AT_COLUMN = "updated_at";
 
 	private final JdbcClient jdbcClient;
 
-	public ConversationQueryRepository(JdbcClient jdbcClient) {
+	ConversationQueryRepository(JdbcClient jdbcClient) {
 		this.jdbcClient = jdbcClient;
 	}
 
+	@Override
 	public List<ConversationSummary> listRecent(String ownerOpenId) {
 		return jdbcClient.sql("""
 				SELECT conversation_id, title, updated_at
@@ -31,15 +37,16 @@ public class ConversationQueryRepository {
 				ORDER BY updated_at DESC
 				LIMIT :limit
 				""")
-				.param("ownerOpenId", ownerOpenId)
+				.param(OWNER_OPEN_ID_PARAMETER, ownerOpenId)
 				.param("limit", RECENT_LIMIT)
-				.query((resultSet, rowNumber) -> new ConversationSummary(
-						resultSet.getObject("conversation_id", UUID.class),
+				.query((resultSet, ignoredRowNumber) -> new ConversationSummary(
+						resultSet.getObject(CONVERSATION_ID_COLUMN, UUID.class),
 						resultSet.getString("title"),
-						toInstant(resultSet, "updated_at")))
+						toInstant(resultSet, UPDATED_AT_COLUMN)))
 				.list();
 	}
 
+	@Override
 	public Optional<ConversationDetail> findConversation(String ownerOpenId, UUID conversationId) {
 		Optional<ConversationHeader> header = jdbcClient.sql("""
 				SELECT conversation_id, title, updated_at
@@ -47,12 +54,12 @@ public class ConversationQueryRepository {
 				WHERE conversation_id = :conversationId
 				  AND owner_open_id = :ownerOpenId
 				""")
-				.param("conversationId", conversationId)
-				.param("ownerOpenId", ownerOpenId)
-				.query((resultSet, rowNumber) -> new ConversationHeader(
-						resultSet.getObject("conversation_id", UUID.class),
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
+				.param(OWNER_OPEN_ID_PARAMETER, ownerOpenId)
+				.query((resultSet, ignoredRowNumber) -> new ConversationHeader(
+						resultSet.getObject(CONVERSATION_ID_COLUMN, UUID.class),
 						resultSet.getString("title"),
-						toInstant(resultSet, "updated_at")))
+						toInstant(resultSet, UPDATED_AT_COLUMN)))
 				.optional();
 		if (header.isEmpty()) {
 			return Optional.empty();
@@ -65,20 +72,21 @@ public class ConversationQueryRepository {
 				  AND superseded = FALSE
 				ORDER BY ordinal
 				""")
-				.param("conversationId", conversationId)
-				.query((resultSet, rowNumber) -> new ConversationTurn(
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
+				.query((resultSet, ignoredRowNumber) -> new ConversationTurn(
 						resultSet.getObject("turn_id", UUID.class),
 						Role.valueOf(resultSet.getString("role")),
 						resultSet.getString("content"),
 						TurnStatus.valueOf(resultSet.getString("status")),
 						toInstant(resultSet, "created_at"),
-						toInstant(resultSet, "updated_at")))
+						toInstant(resultSet, UPDATED_AT_COLUMN)))
 				.list();
 		ConversationHeader value = header.orElseThrow();
 		return Optional.of(new ConversationDetail(
 				value.conversationId(), value.title(), value.updatedAt(), turns));
 	}
 
+	@Override
 	public Optional<RunDescriptor> findOwnedRun(String ownerOpenId, UUID runId) {
 		return jdbcClient.sql("""
 				SELECT r.run_id, r.request_id, r.conversation_id, r.user_turn_id,
@@ -89,12 +97,13 @@ public class ConversationQueryRepository {
 				  AND c.owner_open_id = :ownerOpenId
 				""")
 				.param("runId", runId)
-				.param("ownerOpenId", ownerOpenId)
+				.param(OWNER_OPEN_ID_PARAMETER, ownerOpenId)
 				.query(ConversationQueryRepository::mapRun)
 				.optional();
 	}
 
 	@Transactional
+	@Override
 	public DeleteResult deleteOwnedConversation(String ownerOpenId, UUID conversationId) {
 		String result = jdbcClient.sql("""
 				WITH candidate AS MATERIALIZED (
@@ -122,18 +131,18 @@ public class ConversationQueryRepository {
 				    ELSE 'NOT_FOUND'
 				END AS result
 				""")
-				.param("conversationId", conversationId)
-				.param("ownerOpenId", ownerOpenId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
+				.param(OWNER_OPEN_ID_PARAMETER, ownerOpenId)
 				.query(String.class)
 				.single();
 		return DeleteResult.valueOf(result);
 	}
 
-	private static RunDescriptor mapRun(ResultSet resultSet, int rowNumber) throws SQLException {
+	private static RunDescriptor mapRun(ResultSet resultSet, int ignoredRowNumber) throws SQLException {
 		return new RunDescriptor(
 				resultSet.getObject("run_id", UUID.class),
 				resultSet.getString("request_id"),
-				resultSet.getObject("conversation_id", UUID.class),
+				resultSet.getObject(CONVERSATION_ID_COLUMN, UUID.class),
 				resultSet.getObject("user_turn_id", UUID.class),
 				resultSet.getObject("assistant_turn_id", UUID.class),
 				AgentIntent.valueOf(resultSet.getString("intent")),
@@ -147,62 +156,4 @@ public class ConversationQueryRepository {
 	private record ConversationHeader(UUID conversationId, String title, Instant updatedAt) {
 	}
 
-	public record ConversationSummary(UUID conversationId, String title, Instant updatedAt) {
-	}
-
-	public record ConversationDetail(
-			UUID conversationId,
-			String title,
-			Instant updatedAt,
-			List<ConversationTurn> turns
-	) {
-		public ConversationDetail {
-			turns = List.copyOf(turns);
-		}
-	}
-
-	public record ConversationTurn(
-			UUID turnId,
-			Role role,
-			String content,
-			TurnStatus status,
-			Instant createdAt,
-			Instant updatedAt
-	) {
-	}
-
-	public record RunDescriptor(
-			UUID runId,
-			String requestId,
-			UUID conversationId,
-			UUID userTurnId,
-			UUID assistantTurnId,
-			AgentIntent intent,
-			RunStatus status
-	) {
-	}
-
-	public enum Role {
-		USER,
-		ASSISTANT
-	}
-
-	public enum TurnStatus {
-		PENDING,
-		STREAMING,
-		COMPLETED,
-		FAILED
-	}
-
-	public enum RunStatus {
-		RUNNING,
-		COMPLETED,
-		FAILED
-	}
-
-	public enum DeleteResult {
-		DELETED,
-		ACTIVE_RUN,
-		NOT_FOUND
-	}
 }

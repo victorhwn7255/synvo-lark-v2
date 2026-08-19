@@ -9,6 +9,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class LarkMessageProcessingRepository {
 
+	private static final String MESSAGE_ID_PARAMETER = "messageId";
+
 	private final JdbcClient jdbcClient;
 
 	public LarkMessageProcessingRepository(JdbcClient jdbcClient) {
@@ -24,7 +26,7 @@ public class LarkMessageProcessingRepository {
 				VALUES (:messageId, :senderOpenId, :chatType, :receivedAt, 'PROCESSING', :now)
 				ON CONFLICT (message_id) DO NOTHING
 				""")
-				.param("messageId", messageId)
+				.param(MESSAGE_ID_PARAMETER, messageId)
 				.param("senderOpenId", senderOpenId)
 				.param("chatType", chatType)
 				.param("receivedAt", atUtc(receivedAt))
@@ -52,7 +54,7 @@ public class LarkMessageProcessingRepository {
 				  AND processing_outcome = 'FAILED'
 				""")
 				.param("now", atUtc(Instant.now()))
-				.param("messageId", messageId)
+				.param(MESSAGE_ID_PARAMETER, messageId)
 				.update() == 1;
 	}
 
@@ -75,7 +77,7 @@ public class LarkMessageProcessingRepository {
 				.param("replyMessageId", replyMessageId)
 				.param("errorCode", errorCode)
 				.param("now", atUtc(Instant.now()))
-				.param("messageId", messageId)
+				.param(MESSAGE_ID_PARAMETER, messageId)
 				.update();
 		if (updated != 1) {
 			throw new IllegalStateException("Message processing record was not found");

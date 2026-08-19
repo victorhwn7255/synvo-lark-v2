@@ -12,14 +12,14 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import synvo.agent.AgentIntent;
 import synvo.agent.AgentLifecycleEvent;
+import synvo.agent.ConversationQueries;
+import synvo.agent.ConversationQueries.ConversationSummary;
+import synvo.agent.ConversationQueries.DeleteResult;
+import synvo.agent.ConversationQueries.RunDescriptor;
+import synvo.agent.ConversationQueries.RunStatus;
 import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationRunCoordinator;
 import synvo.agent.ConversationStore;
-import synvo.persistence.ConversationQueryRepository;
-import synvo.persistence.ConversationQueryRepository.DeleteResult;
-import synvo.persistence.ConversationQueryRepository.ConversationSummary;
-import synvo.persistence.ConversationQueryRepository.RunDescriptor;
-import synvo.persistence.ConversationQueryRepository.RunStatus;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,7 +45,7 @@ class ConversationControllerTests {
 	private final UUID runId = UUID.randomUUID();
 	private LarkSessionAccess sessionAccess;
 	private ConversationRunCoordinator coordinator;
-	private ConversationQueryRepository queries;
+	private ConversationQueries queries;
 	private ConversationStore store;
 	private MockMvc mvc;
 
@@ -53,7 +53,7 @@ class ConversationControllerTests {
 	void setUp() {
 		sessionAccess = mock(LarkSessionAccess.class);
 		coordinator = mock(ConversationRunCoordinator.class);
-		queries = mock(ConversationQueryRepository.class);
+		queries = mock(ConversationQueries.class);
 		store = mock(ConversationStore.class);
 		doReturn(new LarkSessionAccess.AuthorizedUser("ou-victor", "Victor", null))
 				.when(sessionAccess).require(any());
