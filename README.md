@@ -4,7 +4,7 @@ Synvo is a Lark-native AI assistant for enterprise knowledge research and
 meeting-to-execution workflows. The repository is intentionally one React H5
 application, one Spring Boot modular monolith, and one PostgreSQL database.
 
-Phase 1 establishes the connection and identity foundation:
+Phase 1 establishes the connection and identity foundation
 
 ```text
 Lark direct message → official Lark WebSocket channel → deterministic reply
