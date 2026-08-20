@@ -1,24 +1,17 @@
 package synvo.lark.channel;
 
-import jakarta.annotation.PreDestroy;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import synvo.agent.AgentCancellation;
 import synvo.configuration.LarkProperties;
-import synvo.configuration.AgentRuntimeProperties;
 import synvo.agent.AgentLifecycleEvent;
 import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationResult;
-import synvo.agent.SynvoAgentCore;
+import synvo.agent.ConversationRunCoordinator;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
 
@@ -36,10 +29,7 @@ final class LarkDirectMessageHandler {
 	private final LarkMessageProcessingRepository messageRepository;
 	private final LarkConversationBindingRepository conversationBindingRepository;
 	private final LarkChannelClient channelClient;
-	private final SynvoAgentCore agentCore;
-	private final long responseTimeoutMillis;
-	private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor(
-			Thread.ofPlatform().daemon().name("synvo-lark-agent-timeout").factory());
+	private final ConversationRunCoordinator conversations;
 	private volatile String botOpenId;
 
 	LarkDirectMessageHandler(
@@ -47,14 +37,12 @@ final class LarkDirectMessageHandler {
 			LarkMessageProcessingRepository messageRepository,
 			LarkConversationBindingRepository conversationBindingRepository,
 			LarkChannelClient channelClient,
-			SynvoAgentCore agentCore,
-			AgentRuntimeProperties agentRuntimeProperties) {
+			ConversationRunCoordinator conversations) {
 		this.properties = properties;
 		this.messageRepository = messageRepository;
 		this.conversationBindingRepository = conversationBindingRepository;
 		this.channelClient = channelClient;
-		this.agentCore = agentCore;
-		this.responseTimeoutMillis = agentRuntimeProperties.responseTimeout().toMillis();
+		this.conversations = conversations;
 	}
 
 	void setBotOpenId(String botOpenId) {
@@ -77,25 +65,16 @@ final class LarkDirectMessageHandler {
 		}
 
 		channelClient.stream(message, writer -> {
-			AgentCancellation cancellation = new AgentCancellation();
-			ScheduledFuture<?> timeout = timeoutScheduler.schedule(
-					cancellation::timeout, responseTimeoutMillis, TimeUnit.MILLISECONDS);
-			try {
-				ConversationResult result = agentCore.converseStreaming(
-						new ConversationRequest(
-								message.messageId(),
-								conversationBindingRepository.findConversationId(
-										message.chatId(), message.senderOpenId()).orElse(null),
-								message.senderOpenId(),
-								message.content()),
-						event -> applyToLarkStream(writer, event),
-						cancellation);
-				conversationBindingRepository.bind(
-						message.chatId(), message.senderOpenId(), result.conversationId());
-			}
-			finally {
-				timeout.cancel(false);
-			}
+			ConversationResult result = conversations.run(
+					new ConversationRequest(
+							message.messageId(),
+							conversationBindingRepository.findConversationId(
+									message.chatId(), message.senderOpenId()).orElse(null),
+							message.senderOpenId(),
+							message.content()),
+					event -> applyToLarkStream(writer, event));
+			conversationBindingRepository.bind(
+					message.chatId(), message.senderOpenId(), result.conversationId());
 		})
 				.whenComplete((replyMessageId, failure) -> {
 					if (failure == null) {
@@ -119,11 +98,6 @@ final class LarkDirectMessageHandler {
 							"Lark fallback reply failed for a claimed message ({})",
 							failureType(fallbackFailure));
 				});
-	}
-
-	@PreDestroy
-	void shutdownTimeoutScheduler() {
-		timeoutScheduler.shutdown();
 	}
 
 	private void respondUnsupported(InboundLarkMessage message) {

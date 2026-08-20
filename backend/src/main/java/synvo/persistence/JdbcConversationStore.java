@@ -8,6 +8,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -24,6 +25,12 @@ import synvo.agent.ConversationStore;
 public class JdbcConversationStore implements ConversationStore {
 
 	private static final int MAX_TITLE_LENGTH = 80;
+	private static final String CONVERSATION_ID_PARAMETER = "conversationId";
+	private static final String RUN_ID_PARAMETER = "runId";
+	private static final String ASSISTANT_TURN_ID_PARAMETER = "assistantTurnId";
+	private static final String TURN_ID_PARAMETER = "turnId";
+	private static final String CONTENT_PARAMETER = "content";
+	private static final String STATUS_PARAMETER = "status";
 
 	private final JdbcClient jdbcClient;
 
@@ -69,7 +76,7 @@ public class JdbcConversationStore implements ConversationStore {
 					)
 					VALUES (:conversationId, :ownerOpenId, :title, :now, :now)
 					""")
-					.param("conversationId", conversationId)
+					.param(CONVERSATION_ID_PARAMETER, conversationId)
 					.param("ownerOpenId", request.userOpenId())
 					.param("title", deriveTitle(request.content()))
 					.param("now", atUtc(now))
@@ -81,11 +88,11 @@ public class JdbcConversationStore implements ConversationStore {
 					FROM conversation
 					WHERE conversation_id = :conversationId
 					""")
-					.param("conversationId", conversationId)
+					.param(CONVERSATION_ID_PARAMETER, conversationId)
 					.query(String.class)
 					.optional()
 					.orElseThrow(() -> new IllegalArgumentException("Conversation is unavailable"));
-			if (!ownerOpenId.equals(request.userOpenId())) {
+			if (!Objects.equals(ownerOpenId, request.userOpenId())) {
 				throw new IllegalArgumentException("Conversation is unavailable");
 			}
 		}
@@ -109,11 +116,11 @@ public class JdbcConversationStore implements ConversationStore {
 				    :now, :now
 				)
 				""")
-				.param("runId", runId)
+				.param(RUN_ID_PARAMETER, runId)
 				.param("requestId", request.requestId())
-				.param("conversationId", conversationId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.param("userTurnId", userTurnId)
-				.param("assistantTurnId", assistantTurnId)
+				.param(ASSISTANT_TURN_ID_PARAMETER, assistantTurnId)
 				.param("requestedByOpenId", request.userOpenId())
 				.param("intent", intent.name())
 				.param("now", atUtc(now))
@@ -125,7 +132,7 @@ public class JdbcConversationStore implements ConversationStore {
 				WHERE conversation_id = :conversationId
 				""")
 				.param("now", atUtc(now))
-				.param("conversationId", conversationId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.update();
 
 		return new RunHandle(conversationId, runId, userTurnId, assistantTurnId, intent);
@@ -149,11 +156,11 @@ public class JdbcConversationStore implements ConversationStore {
 				ORDER BY ordinal DESC
 				LIMIT :maxMessages
 				""")
-				.param("conversationId", conversationId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.param("maxMessages", maxMessages)
 				.query((resultSet, rowNumber) -> new ConversationContextMessage(
 						ConversationContextMessage.Role.valueOf(resultSet.getString("role")),
-						resultSet.getString("content")))
+						resultSet.getString(CONTENT_PARAMETER)))
 				.list();
 
 		Deque<ConversationContextMessage> bounded = new ArrayDeque<>();
@@ -186,7 +193,7 @@ public class JdbcConversationStore implements ConversationStore {
 				""")
 				.param("delta", event.contentDelta())
 				.param("now", atUtc(Instant.now()))
-				.param("turnId", run.assistantTurnId())
+				.param(TURN_ID_PARAMETER, run.assistantTurnId())
 				.update();
 		assertOne(updated, "Assistant turn was not streamable");
 		insertEvent(run.runId(), event);
@@ -204,7 +211,7 @@ public class JdbcConversationStore implements ConversationStore {
 				WHERE turn_id = :turnId AND status IN ('PENDING', 'STREAMING')
 				""")
 				.param("now", atUtc(Instant.now()))
-				.param("turnId", run.assistantTurnId())
+				.param(TURN_ID_PARAMETER, run.assistantTurnId())
 				.update();
 		assertOne(updated, "Assistant turn was not resettable");
 		insertEvent(run.runId(), event);
@@ -217,7 +224,7 @@ public class JdbcConversationStore implements ConversationStore {
 				)
 				VALUES (:runId, :sequence, :eventType, :safeMessage, :contentDelta, :now)
 				""")
-				.param("runId", runId)
+				.param(RUN_ID_PARAMETER, runId)
 				.param("sequence", event.sequence())
 				.param("eventType", event.state().name())
 				.param("safeMessage", event.safeMessage())
@@ -265,10 +272,10 @@ public class JdbcConversationStore implements ConversationStore {
 				SET content = :content, status = :status, updated_at = :now
 				WHERE turn_id = :turnId AND status IN ('PENDING', 'STREAMING')
 				""")
-				.param("content", assistantResponse)
-				.param("status", status)
+				.param(CONTENT_PARAMETER, assistantResponse)
+				.param(STATUS_PARAMETER, status)
 				.param("now", now)
-				.param("turnId", run.assistantTurnId())
+				.param(TURN_ID_PARAMETER, run.assistantTurnId())
 				.update();
 		assertOne(turnUpdated, "Assistant turn was not active");
 
@@ -278,11 +285,11 @@ public class JdbcConversationStore implements ConversationStore {
 				    updated_at = :now
 				WHERE run_id = :runId AND status = 'RUNNING'
 				""")
-				.param("status", status)
+				.param(STATUS_PARAMETER, status)
 				.param("outcome", outcome)
 				.param("errorCode", errorCode)
 				.param("now", now)
-				.param("runId", run.runId())
+				.param(RUN_ID_PARAMETER, run.runId())
 				.update();
 		assertOne(runUpdated, "Agent run was not active");
 
@@ -292,7 +299,7 @@ public class JdbcConversationStore implements ConversationStore {
 				WHERE conversation_id = :conversationId
 				""")
 				.param("now", now)
-				.param("conversationId", run.conversationId())
+				.param(CONVERSATION_ID_PARAMETER, run.conversationId())
 				.update();
 		insertEvent(run.runId(), terminalEvent);
 	}
@@ -310,11 +317,11 @@ public class JdbcConversationStore implements ConversationStore {
 				)
 				VALUES (:turnId, :conversationId, :role, :content, :status, :now, :now)
 				""")
-				.param("turnId", turnId)
-				.param("conversationId", conversationId)
+				.param(TURN_ID_PARAMETER, turnId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.param("role", role)
-				.param("content", content)
-				.param("status", status)
+				.param(CONTENT_PARAMETER, content)
+				.param(STATUS_PARAMETER, status)
 				.param("now", atUtc(now))
 				.update();
 	}
@@ -339,12 +346,12 @@ public class JdbcConversationStore implements ConversationStore {
 				  AND u.superseded = FALSE
 				  AND a.superseded = FALSE
 				""")
-				.param("conversationId", conversationId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.param("ownerOpenId", request.userOpenId())
-				.param("assistantTurnId", assistantTurnId)
+				.param(ASSISTANT_TURN_ID_PARAMETER, assistantTurnId)
 				.query((resultSet, rowNumber) -> new RetryTarget(
 						resultSet.getObject("user_turn_id", UUID.class),
-						resultSet.getString("content")))
+						resultSet.getString(CONTENT_PARAMETER)))
 				.optional()
 				.orElseThrow(() -> new IllegalArgumentException("Retry target is unavailable"));
 		if (!target.userContent().equals(request.content())) {
@@ -358,9 +365,9 @@ public class JdbcConversationStore implements ConversationStore {
 				  AND (turn_id = :userTurnId OR turn_id = :assistantTurnId)
 				""")
 				.param("now", atUtc(now))
-				.param("conversationId", conversationId)
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.param("userTurnId", target.userTurnId())
-				.param("assistantTurnId", assistantTurnId)
+				.param(ASSISTANT_TURN_ID_PARAMETER, assistantTurnId)
 				.update();
 		if (updated != 2) {
 			throw new IllegalArgumentException("Retry target is unavailable");
@@ -379,7 +386,7 @@ public class JdbcConversationStore implements ConversationStore {
 				  AND sequence_number > :afterSequence
 				ORDER BY sequence_number
 				""")
-				.param("runId", runId)
+				.param(RUN_ID_PARAMETER, runId)
 				.param("afterSequence", afterSequence)
 				.query((resultSet, rowNumber) -> new AgentLifecycleEvent(
 						resultSet.getInt("sequence_number"),
@@ -413,9 +420,9 @@ public class JdbcConversationStore implements ConversationStore {
 					SET content = :content, status = 'FAILED', updated_at = :now
 					WHERE turn_id = :turnId AND status IN ('PENDING', 'STREAMING')
 					""")
-					.param("content", safeAssistantResponse)
+					.param(CONTENT_PARAMETER, safeAssistantResponse)
 					.param("now", now)
-					.param("turnId", run.assistantTurnId())
+					.param(TURN_ID_PARAMETER, run.assistantTurnId())
 					.update();
 			jdbcClient.sql("""
 					UPDATE agent_run
@@ -424,7 +431,7 @@ public class JdbcConversationStore implements ConversationStore {
 					WHERE run_id = :runId AND status = 'RUNNING'
 					""")
 					.param("now", now)
-					.param("runId", run.runId())
+					.param(RUN_ID_PARAMETER, run.runId())
 					.update();
 			insertEvent(run.runId(), new AgentLifecycleEvent(
 					run.nextSequence(), AgentLifecycleEvent.State.FAILED, safeAssistantResponse));
@@ -439,7 +446,7 @@ public class JdbcConversationStore implements ConversationStore {
 				resultSet.getObject("run_id", UUID.class),
 				AgentIntent.valueOf(resultSet.getString("intent")),
 				ConversationResult.Outcome.valueOf(resultSet.getString("outcome")),
-				ConversationResult.Status.valueOf(resultSet.getString("status")),
+				ConversationResult.Status.valueOf(resultSet.getString(STATUS_PARAMETER)),
 				resultSet.getString("assistant_response"));
 	}
 

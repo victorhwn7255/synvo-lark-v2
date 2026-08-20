@@ -21,13 +21,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import synvo.agent.ConversationAlreadyRunningException;
+import synvo.agent.ConversationQueries;
+import synvo.agent.ConversationQueries.ConversationDetail;
+import synvo.agent.ConversationQueries.ConversationSummary;
+import synvo.agent.ConversationQueries.RunDescriptor;
 import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationRunCoordinator;
-import synvo.agent.SynvoAgentCore.ConversationAlreadyRunningException;
-import synvo.persistence.ConversationQueryRepository;
-import synvo.persistence.ConversationQueryRepository.ConversationDetail;
-import synvo.persistence.ConversationQueryRepository.ConversationSummary;
-import synvo.persistence.ConversationQueryRepository.RunDescriptor;
 
 @RestController
 @RequestMapping("/api/conversations")
@@ -36,29 +36,29 @@ class ConversationController {
 	private final LarkSessionAccess sessionAccess;
 	private final ConversationRunCoordinator runCoordinator;
 	private final ConversationEventStream eventStream;
-	private final ConversationQueryRepository queryRepository;
+	private final ConversationQueries queries;
 
 	ConversationController(
 			LarkSessionAccess sessionAccess,
 			ConversationRunCoordinator runCoordinator,
 			ConversationEventStream eventStream,
-			ConversationQueryRepository queryRepository) {
+			ConversationQueries queries) {
 		this.sessionAccess = sessionAccess;
 		this.runCoordinator = runCoordinator;
 		this.eventStream = eventStream;
-		this.queryRepository = queryRepository;
+		this.queries = queries;
 	}
 
 	@GetMapping
 	List<ConversationSummary> list(HttpSession session) {
 		String ownerOpenId = sessionAccess.require(session).openId();
-		return queryRepository.listRecent(ownerOpenId);
+		return queries.listRecent(ownerOpenId);
 	}
 
 	@GetMapping("/{conversationId}")
 	ConversationDetail detail(@PathVariable UUID conversationId, HttpSession session) {
 		String ownerOpenId = sessionAccess.require(session).openId();
-		return queryRepository.findConversation(ownerOpenId, conversationId)
+		return queries.findConversation(ownerOpenId, conversationId)
 				.orElseThrow(ResourceNotFoundException::new);
 	}
 
@@ -66,7 +66,7 @@ class ConversationController {
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	void delete(@PathVariable UUID conversationId, HttpSession session) {
 		String ownerOpenId = sessionAccess.require(session).openId();
-		switch (queryRepository.deleteOwnedConversation(ownerOpenId, conversationId)) {
+		switch (queries.deleteOwnedConversation(ownerOpenId, conversationId)) {
 			case DELETED -> {
 			}
 			case ACTIVE_RUN -> throw new ConversationActiveException();
@@ -91,7 +91,7 @@ class ConversationController {
 			@RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
 			HttpSession session) {
 		String ownerOpenId = sessionAccess.require(session).openId();
-		queryRepository.findOwnedRun(ownerOpenId, runId)
+		queries.findOwnedRun(ownerOpenId, runId)
 				.orElseThrow(ResourceNotFoundException::new);
 		return eventStream.subscribe(runId, parseLastSequence(lastEventId));
 	}
@@ -99,7 +99,7 @@ class ConversationController {
 	@PostMapping("/runs/{runId}/stop")
 	StopResponse stop(@PathVariable UUID runId, HttpSession session) {
 		String ownerOpenId = sessionAccess.require(session).openId();
-		RunDescriptor run = queryRepository.findOwnedRun(ownerOpenId, runId)
+		RunDescriptor run = queries.findOwnedRun(ownerOpenId, runId)
 				.orElseThrow(ResourceNotFoundException::new);
 		return new StopResponse(runCoordinator.stop(runId), run.status().name());
 	}

@@ -63,7 +63,7 @@ public final class SynvoAgentCore {
 		return converseStreaming(request, ignored -> { }, ModelCancellation.none());
 	}
 
-	public ConversationResult converseStreaming(
+	ConversationResult converseStreaming(
 			ConversationRequest request,
 			Consumer<AgentLifecycleEvent> listener,
 			ModelCancellation cancellation) {
@@ -71,7 +71,7 @@ public final class SynvoAgentCore {
 		return execute(prepared, listener, cancellation);
 	}
 
-	public PreparedConversation prepare(
+	PreparedConversation prepare(
 			ConversationRequest request,
 			Consumer<AgentLifecycleEvent> listener) {
 		Objects.requireNonNull(request, "request");
@@ -103,7 +103,7 @@ public final class SynvoAgentCore {
 		return prepared;
 	}
 
-	public ConversationResult execute(
+	ConversationResult execute(
 			PreparedConversation prepared,
 			Consumer<AgentLifecycleEvent> listener,
 			ModelCancellation cancellation) {
@@ -329,7 +329,7 @@ public final class SynvoAgentCore {
 				false);
 	}
 
-	public static final class PreparedConversation {
+	static final class PreparedConversation {
 
 		private final String requestId;
 		private final RunHandle run;
@@ -364,23 +364,23 @@ public final class SynvoAgentCore {
 					new ArrayList<>(replay.events()), nextSequence);
 		}
 
-		public String requestId() {
+		String requestId() {
 			return requestId;
 		}
 
-		public RunHandle run() {
+		RunHandle run() {
 			return run;
 		}
 
-		public ConversationResult replay() {
+		ConversationResult replay() {
 			return replay;
 		}
 
-		public boolean replayed() {
+		boolean replayed() {
 			return replay != null;
 		}
 
-		public List<AgentLifecycleEvent> events() {
+		List<AgentLifecycleEvent> events() {
 			return List.copyOf(events);
 		}
 
@@ -403,9 +403,4 @@ public final class SynvoAgentCore {
 		}
 	}
 
-	public static final class ConversationAlreadyRunningException extends RuntimeException {
-		public ConversationAlreadyRunningException() {
-			super("Conversation request is already running");
-		}
-	}
 }

@@ -4,21 +4,27 @@ Synvo is a Lark-native AI assistant for enterprise knowledge research and
 meeting-to-execution workflows. The repository is intentionally one React H5
 application, one Spring Boot modular monolith, and one PostgreSQL database.
 
-Phase 1 establishes the connection and identity foundation:
+The current tracked baseline completes Phases 0 through 2.5:
 
 ```text
-Lark direct message → official Lark WebSocket channel → deterministic reply
-
-Lark H5 application → Spring Boot authorization → encrypted token storage
+Lark Chat --\
+             +--> shared conversation boundary --> Synvo Agent Core --> model gateway
+React H5 ---/                +--> PostgreSQL lifecycle state
 ```
 
-This is not an AI phase. NVIDIA Nemotron, the Synvo Agent Core, Drive retrieval,
-conversation memory, Lark Cards, and agent workflows remain disabled.
+This baseline includes the secure Lark connection, encrypted H5 authorization,
+NVIDIA Nemotron model boundary, conversation memory, streaming lifecycle,
+evolving Lark responses, REST/SSE H5 conversation experience, and the Phase 2.5
+module-boundary hardening. Enterprise Knowledge Research, configured-Drive
+retrieval, citations, and Meeting-to-Execution are not implemented in this
+baseline; each requires its own approved tracked specification before
+implementation.
 
 ## Technology
 
 - Frontend: React 19, TypeScript, Vite, and Tailwind CSS
 - Backend: Java 21, Spring Boot 4, Maven Wrapper, and the official Lark Java SDK
+- Primary model: NVIDIA Nemotron 3 Super 120B behind the Synvo model gateway
 - Database: PostgreSQL 18 with Flyway migrations
 - Local runtime: Docker Compose
 
@@ -46,7 +52,7 @@ curl -fsS http://127.0.0.1:5173/api/status
 curl -fsS http://127.0.0.1:5173/api/lark/connection
 ```
 
-The last response reports Lark as disabled until the Phase 1 settings below are
+The last response reports Lark as disabled until the Lark settings below are
 supplied.
 
 Stop the containers without deleting PostgreSQL data:
@@ -58,13 +64,14 @@ docker compose down
 Use `docker compose down --volumes` only when you intentionally want to delete
 all local database data.
 
-## Phase 1 Lark setup
+## Lark setup
 
 Use one Lark custom application for both capabilities:
 
 1. Enable **Bot** and **Web App/H5** in the Lark developer console.
 2. Select WebSocket/long-connection event delivery. Do not configure a webhook.
-3. Subscribe only to `im.message.receive_v1` for the Phase 1 bot slice.
+3. Subscribe only to `im.message.receive_v1` for the current direct-message
+   channel.
 4. Enable the user scope `offline_access`; the H5 client requests only this
    scope so the backend can safely refresh Victor's user token on demand.
 5. Keep the application's availability and contact range restricted to the
@@ -77,9 +84,10 @@ Use one Lark custom application for both capabilities:
 
 The implementation accepts only direct (`p2p`) messages from Victor's configured
 `open_id`. It ignores group messages, other users, and bot-authored messages.
-Standalone text receives one deterministic normal chat response. When Victor
-explicitly uses Lark's Reply action, Synvo preserves that reply anchor.
-Unsupported content receives a deterministic text-only notice.
+Accepted text enters the same conversation application boundary used by H5 and
+receives one evolving assistant response. When Victor explicitly uses Lark's
+Reply action, Synvo preserves that reply anchor. Unsupported content receives a
+deterministic text-only notice.
 
 ### Obtain Victor's open ID
 
@@ -124,6 +132,21 @@ The browser receives only a Secure, HttpOnly Synvo session cookie; Lark access
 and refresh tokens are exchanged in Spring Boot and encrypted with AES-256-GCM
 before PostgreSQL persistence.
 
+### NVIDIA Nemotron settings
+
+Model integration is disabled for an ordinary credential-free startup. Enable
+the completed Phase 2 model boundary with these local `.env` values:
+
+```dotenv
+SYNVO_MODEL_ENABLED=true
+SYNVO_MODEL_BASE_URL=https://integrate.api.nvidia.com/v1
+SYNVO_MODEL_NAME=nvidia/nemotron-3-super-120b-a12b
+SYNVO_MODEL_API_KEY=<nvidia-nim-api-key>
+```
+
+The model API key remains in `.env`, is passed only to the model adapter, and
+must never be committed or logged.
+
 Start the stack and inspect the safe connection state:
 
 ```bash
@@ -162,21 +185,24 @@ Do not save the tunnel URL or ngrok credentials in the repository. Stop ngrok
 with `Ctrl+C` after the H5 test; the ordinary Compose stack continues to work
 without it.
 
-## Phase 1 live smoke test
+## Current live smoke test
 
 With the developer-console settings and local secrets configured:
 
 1. Confirm the backend reports the bot WebSocket as connected.
 2. Send a standalone text direct message from Victor and receive exactly one
-   deterministic normal chat response without quoted reply decoration. Then use
-   Lark's Reply action once and confirm the explicit reply anchor is preserved.
+   evolving assistant response without quoted reply decoration. Then use Lark's
+   Reply action once and confirm the explicit reply anchor is preserved.
 3. Confirm a group message and a message from a non-pilot account receive no
    reply.
 4. Open the H5 application inside Lark and authorize as Victor.
 5. Confirm the page independently reports the bot connection and Victor's user
    authorization.
-6. Restart the backend and confirm the authorized connection remains available.
-7. Inspect backend/container logs for credentials, tokens, or message content;
+6. Send one prompt from Lark Chat and one from H5. Confirm both use the shared
+   waiting, streaming, and completed lifecycle without duplicate turns.
+7. Restart the backend and confirm the authorized connection and persisted
+   conversation history remain available.
+8. Inspect backend/container logs for credentials, tokens, or message content;
    none should be present.
 
 The live test is manual and must never run in the ordinary automated suite.
@@ -185,7 +211,8 @@ The live test is manual and must never run in the ordinary automated suite.
 
 Use [`.env.example`](.env.example) as the complete reference. `.env`, secret
 files, build output, local task plans, and runtime data are ignored by Git.
-Model settings remain disabled in Phase 1.
+Lark and model integrations remain disabled by default and are enabled only by
+validated local configuration.
 
 ## Backend checks
 

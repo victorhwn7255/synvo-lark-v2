@@ -1,0 +1,224 @@
+.workspace-artifact-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-muted) 48%, var(--surface-strong));
+}
+
+.workspace-artifact-panel__header {
+  min-height: 3.8rem;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .65rem .85rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-artifact-panel__header > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-artifact-panel__header p,
+.workspace-overline {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: .58rem;
+  font-weight: 730;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.workspace-artifact-panel__header h2 {
+  margin: .15rem 0 0;
+  color: var(--ink);
+  font-size: .85rem;
+}
+
+.workspace-artifact-panel__empty {
+  min-height: calc(100% - 3.8rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.workspace-artifact-panel__empty > svg {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.workspace-artifact-panel__empty h3 {
+  margin: .9rem 0 0;
+  color: var(--ink);
+  font-size: .9rem;
+}
+
+.workspace-artifact-panel__empty p {
+  margin: .5rem 0 0;
+  font-size: .72rem;
+  line-height: 1.55;
+}
+
+.workflow-presentations {
+  display: grid;
+  gap: .7rem;
+  padding: .85rem;
+}
+
+.workflow-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: .85rem;
+  padding: .85rem;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.workflow-card > p,
+.workflow-card__heading p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: .58rem;
+  font-weight: 730;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workflow-card h3 {
+  margin: .3rem 0 0;
+  font-size: .82rem;
+  line-height: 1.35;
+}
+
+.workflow-card__heading,
+.workflow-card--activity {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+}
+
+.workflow-card__heading > div,
+.workflow-card--activity > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.workflow-card__copy,
+.workflow-card blockquote,
+.workflow-card__section p {
+  margin: .55rem 0 0;
+  color: var(--ink-soft);
+  font-size: .69rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.workflow-card blockquote {
+  padding-left: .65rem;
+  border-left: 2px solid var(--border-strong);
+}
+
+.workflow-card a {
+  display: inline-flex;
+  margin-top: .65rem;
+  color: var(--violet-strong);
+  font-size: .68rem;
+  font-weight: 680;
+  text-decoration: none;
+}
+
+.workflow-card a:hover {
+  text-decoration: underline;
+}
+
+.workflow-status-dot {
+  width: .5rem;
+  height: .5rem;
+  flex: 0 0 auto;
+  margin-top: .28rem;
+  border-radius: 99px;
+  background: var(--warning);
+}
+
+.workflow-card--activity[data-status="completed"] .workflow-status-dot {
+  background: var(--positive);
+}
+
+.workflow-card--activity[data-status="failed"] .workflow-status-dot {
+  background: var(--negative);
+}
+
+.workflow-status-label {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: .18rem .42rem;
+  color: var(--ink-faint);
+  font-size: .55rem;
+  font-weight: 680;
+  text-transform: capitalize;
+}
+
+.workflow-card__section {
+  margin-top: .75rem;
+  padding-top: .7rem;
+  border-top: 1px solid var(--border);
+}
+
+.workflow-card__section h4 {
+  margin: 0;
+  font-size: .68rem;
+}
+
+.workflow-card--confirmation dl {
+  margin: .75rem 0 0;
+  font-size: .66rem;
+}
+
+.workflow-card--confirmation dt {
+  color: var(--ink-faint);
+}
+
+.workflow-card--confirmation dd {
+  margin: .2rem 0 0;
+  color: var(--ink-soft);
+}
+
+.workflow-card--confirmation button {
+  width: 100%;
+  margin-top: .75rem;
+  border: 1px solid var(--border);
+  border-radius: .62rem;
+  padding: .55rem;
+  background: var(--surface-muted);
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: .66rem;
+  font-weight: 680;
+  cursor: not-allowed;
+}
+
+.workflow-card--confirmation small {
+  display: block;
+  margin-top: .45rem;
+  color: var(--ink-faint);
+  font-size: .56rem;
+  line-height: 1.45;
+}
+
+.workflow-card--unavailable {
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--border));
+  background: var(--warning-soft);
+}
+
+.workflow-card--error,
+.workflow-card--artifact[data-status="failed"] {
+  border-color: color-mix(in srgb, var(--negative) 28%, var(--border));
+  background: var(--negative-soft);
+}
+

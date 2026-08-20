@@ -75,8 +75,7 @@ final class OfficialLarkChannelClient implements LarkChannelClient {
 		CompletableFuture<SendResult> response = options == null
 				? channel.send(message.chatId(), SendInput.text(text))
 				: channel.send(message.chatId(), SendInput.text(text), options);
-		return response
-				.thenApply(result -> result.getMessageId());
+		return response.thenApply(SendResult::getMessageId);
 	}
 
 	@Override

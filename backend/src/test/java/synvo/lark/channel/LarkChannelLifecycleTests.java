@@ -6,8 +6,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import synvo.configuration.LarkProperties;
-import synvo.configuration.AgentRuntimeProperties;
-import synvo.agent.SynvoAgentCore;
+import synvo.agent.ConversationRunCoordinator;
 import synvo.lark.channel.LarkChannelClient.Signal;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
@@ -24,7 +23,7 @@ class LarkChannelLifecycleTests {
 		LarkDirectMessageHandler handler = new LarkDirectMessageHandler(
 				properties(), mock(LarkMessageProcessingRepository.class),
 				mock(LarkConversationBindingRepository.class), client,
-				mock(SynvoAgentCore.class), new AgentRuntimeProperties(Duration.ofMinutes(2)));
+				mock(ConversationRunCoordinator.class));
 		LarkChannelLifecycle lifecycle = new LarkChannelLifecycle(client, handler, status);
 
 		lifecycle.connect();
@@ -50,7 +49,7 @@ class LarkChannelLifecycleTests {
 		LarkDirectMessageHandler handler = new LarkDirectMessageHandler(
 				properties(), mock(LarkMessageProcessingRepository.class),
 				mock(LarkConversationBindingRepository.class), client,
-				mock(SynvoAgentCore.class), new AgentRuntimeProperties(Duration.ofMinutes(2)));
+				mock(ConversationRunCoordinator.class));
 
 		new LarkChannelLifecycle(client, handler, status).connect();
 

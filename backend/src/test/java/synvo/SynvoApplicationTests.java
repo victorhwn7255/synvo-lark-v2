@@ -27,6 +27,10 @@ import org.springframework.test.context.ActiveProfiles;
 import synvo.agent.AgentIntent;
 import synvo.agent.AgentLifecycleEvent;
 import synvo.agent.ConversationContextMessage;
+import synvo.agent.ConversationQueries;
+import synvo.agent.ConversationQueries.ConversationDetail;
+import synvo.agent.ConversationQueries.DeleteResult;
+import synvo.agent.ConversationQueries.TurnStatus;
 import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationResult;
 import synvo.agent.ConversationStore;
@@ -37,8 +41,6 @@ import synvo.agent.model.ModelGatewayException;
 import synvo.lark.auth.AesGcmTokenCipher;
 import synvo.lark.auth.TokenContext;
 import synvo.persistence.LarkMessageProcessingRepository;
-import synvo.persistence.ConversationQueryRepository;
-import synvo.persistence.ConversationQueryRepository.DeleteResult;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkUserConnection;
 import synvo.persistence.LarkUserConnectionRepository;
@@ -74,7 +76,7 @@ class SynvoApplicationTests {
 	private SynvoAgentCore agentCore;
 
 	@Autowired
-	private ConversationQueryRepository conversationQueries;
+	private ConversationQueries conversationQueries;
 
 	@Autowired
 	private LarkConversationBindingRepository conversationBindings;
@@ -130,13 +132,13 @@ class SynvoApplicationTests {
 						.filter(event -> event.state() == AgentLifecycleEvent.State.CONTENT_DELTA)
 						.map(AgentLifecycleEvent::contentDelta)
 						.toList());
-		ConversationQueryRepository.ConversationDetail detail = conversationQueries
+		ConversationDetail detail = conversationQueries
 				.findConversation("ou-stream-owner", result.conversationId())
 				.orElseThrow();
 		assertEquals("Explain SSE clearly", detail.title());
 		assertEquals(2, detail.turns().size());
 		assertEquals("One \n\npersisted response.", detail.turns().getLast().content());
-		assertEquals(ConversationQueryRepository.TurnStatus.COMPLETED,
+		assertEquals(TurnStatus.COMPLETED,
 				detail.turns().getLast().status());
 		assertTrue(conversationQueries.listRecent("ou-stream-owner").stream()
 				.anyMatch(summary -> summary.conversationId().equals(result.conversationId())));
@@ -218,7 +220,7 @@ class SynvoApplicationTests {
 		assertEquals(1, conversationStore.loadEvents(result.runId(), 0).stream()
 				.filter(event -> event.state() == AgentLifecycleEvent.State.CONTENT_RESET)
 				.count());
-		ConversationQueryRepository.ConversationDetail detail = conversationQueries
+		ConversationDetail detail = conversationQueries
 				.findConversation("ou-provider-retry", result.conversationId())
 				.orElseThrow();
 		assertEquals(2, detail.turns().size());
@@ -282,12 +284,12 @@ class SynvoApplicationTests {
 				failed.assistantTurnId()));
 
 		assertEquals(ConversationResult.Status.COMPLETED, replacement.status());
-		ConversationQueryRepository.ConversationDetail visible = conversationQueries
+		ConversationDetail visible = conversationQueries
 				.findConversation(owner, failed.conversationId())
 				.orElseThrow();
 		assertEquals(2, visible.turns().size());
 		assertEquals(content, visible.turns().getFirst().content());
-		assertEquals(ConversationQueryRepository.TurnStatus.COMPLETED,
+		assertEquals(TurnStatus.COMPLETED,
 				visible.turns().getLast().status());
 		assertEquals(2, jdbcTemplate.queryForObject(
 				"select count(*) from conversation_turn where conversation_id = ? and superseded",
