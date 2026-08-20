@@ -31,6 +31,23 @@ tasks.
 - Lessons supplement but do not replace `docs/project-overview.md`, phase
   specifications, source-code documentation, or tests.
 
+## Design Principles
+
+`docs/PRINCIPLES.md` is the working software-design reference (deep modules,
+information hiding, error design), adapted from *A Philosophy of Software
+Design*.
+
+- Before designing a new module boundary, public interface, database table, or
+  HTTP/SSE/Lark contract, check its Red Flags table and complete its Agent
+  Design Checklist, recording the design-it-twice comparison in the task notes.
+- Changes confined to the implementation behind an existing interface do not
+  require this.
+- When a new backend boundary is introduced, extend
+  `ArchitectureBoundaryTests` to protect it in the same change.
+- Precedence: this file and the phase specification always win over
+  `docs/PRINCIPLES.md`. It never authorizes scope expansion or abstractions
+  listed as non-goals.
+
 ## Lightweight Spec-Driven Development
 
 - `docs/project-overview.md` is the authoritative lightweight product
@@ -233,3 +250,5 @@ Prioritize findings related to:
 5. Model logic bypassing deterministic application policy
 6. Unnecessary infrastructure or abstraction
 7. Missing workflow and integration tests
+8. `docs/PRINCIPLES.md` red flags: shallow modules, information leakage,
+   pass-through layers, special-general mixture
