@@ -20,11 +20,18 @@ retrieval, citations, and Meeting-to-Execution are not implemented in this
 baseline; each requires its own approved tracked specification before
 implementation.
 
+The approved next direction is Phase 3, "Codex in Lark": it replaces the
+Nemotron model gateway entirely with the OpenAI Codex agent engine, hosted by
+one Python runner behind a Synvo-owned engine port. See
+[`docs/project-overview.md`](docs/project-overview.md) for the updated
+technology direction.
+
 ## Technology
 
 - Frontend: React 19, TypeScript, Vite, and Tailwind CSS
 - Backend: Java 21, Spring Boot 4, Maven Wrapper, and the official Lark Java SDK
-- Primary model: NVIDIA Nemotron 3 Super 120B behind the Synvo model gateway
+- Agent engine: NVIDIA Nemotron 3 Super 120B behind the Synvo model gateway
+  today; replaced by OpenAI Codex (app-server + official Python SDK) in Phase 3
 - Database: PostgreSQL 18 with Flyway migrations
 - Local runtime: Docker Compose
 
@@ -134,8 +141,10 @@ before PostgreSQL persistence.
 
 ### NVIDIA Nemotron settings
 
-Model integration is disabled for an ordinary credential-free startup. Enable
-the completed Phase 2 model boundary with these local `.env` values:
+These settings apply to the current baseline and are replaced when Phase 3
+lands the Codex engine. Model integration is disabled for an ordinary
+credential-free startup. Enable the completed Phase 2 model boundary with
+these local `.env` values:
 
 ```dotenv
 SYNVO_MODEL_ENABLED=true

@@ -89,17 +89,19 @@ explicitly requested.
 - Frontend: React, TypeScript, Vite, and Tailwind CSS
 - Backend: Java and Spring Boot
 - Lark integration: Lark OpenAPI Java SDK
-- Agent foundation: Synvo Agent Core with Spring AI
-- Primary model: NVIDIA Nemotron 3 Super 120B
+- Agent foundation: Synvo Agent Core (Synvo-owned orchestration boundary)
+- Agent engine: OpenAI Codex through the Codex app-server and official Python SDK
+- Engine runner: one Python sidecar service behind a Synvo-owned engine port
 - Persistence: PostgreSQL
 - Client communication: REST and Server-Sent Events
 
 Do not replace these choices or add competing frameworks without an explicit
 requirement and a documented reason.
 
-Spring AI Alibaba components may be adopted selectively behind Synvo-owned
-interfaces. Do not make the application architecture depend directly on its
-agent framework.
+Codex protocol, SDK, and runner details stay inside the engine runner and its
+backend adapter. Do not make the application architecture depend directly on
+Codex specifics; replacing the engine must not require changes outside that
+boundary.
 
 ## Architecture Rules
 
@@ -169,7 +171,8 @@ Prefer:
 - Do not add a production dependency when the standard library or an existing
   dependency is sufficient.
 - When adding a dependency, explain its purpose and architectural impact.
-- Keep model-provider integration behind the model gateway.
+- Keep Codex and any model-provider integration behind the Synvo-owned engine
+  port.
 - Keep Lark API details behind the Lark integration and Action Gateway modules.
 
 ## Git Policy

@@ -16,7 +16,7 @@ This document is the high-level product and engineering reference for the projec
 
 Natural language is the primary interface to Synvo. Users should not need to select tools, learn commands, or understand the underlying workflows.
 
-Powered by NVIDIA Nemotron 3 Super 120B, Synvo should understand the user's intent and conversational context, then choose the appropriate behavior:
+Powered by the OpenAI Codex agent engine, Synvo should understand the user's intent and conversational context, then choose the appropriate behavior:
 
 - Answer a general question directly.
 - Retrieve relevant information from the configured Lark knowledge source.
@@ -112,12 +112,13 @@ The plan is reviewed and edited in the H5 application. Synvo executes only the a
 | H5 frontend | React, TypeScript, Vite, Tailwind CSS | Research views and editable execution plans |
 | Backend | Java and Spring Boot | APIs, security, orchestration, integrations, and persistence |
 | Lark integration | Lark OpenAPI Java SDK | Lark events, messages, resources, and actions |
-| Agent foundation | Synvo Agent Core with Spring AI | Intent routing, model access, structured output, and tool integration |
-| Primary model | NVIDIA Nemotron 3 Super 120B | Language understanding, reasoning, extraction, and response generation |
+| Agent foundation | Synvo Agent Core | Conversation orchestration, lifecycle, and deterministic policy around the engine |
+| Agent engine | OpenAI Codex (app-server + official Python SDK) | Agentic reasoning, response generation, and approval-gated execution |
+| Engine runner | One Python sidecar service | Hosts the Codex app-server behind a Synvo-owned engine port and translates lifecycle events |
 | Persistence | PostgreSQL | Workflow state, source configuration, confirmations, idempotency, and audit |
 | Client updates | REST and Server-Sent Events | Commands and live workflow progress |
 
-Spring AI Alibaba components may be adopted selectively if they solve a demonstrated workflow need. They must remain behind Synvo-owned interfaces and must not define the project's core architecture.
+Codex protocol and SDK details must remain inside the engine runner and its backend adapter, behind Synvo-owned interfaces. The application architecture must not depend directly on Codex specifics, and replacing the engine must not require changes outside that boundary. Phase 3 ("Codex in Lark") replaces the Phase 2 NVIDIA Nemotron gateway entirely; until that phase completes, the Nemotron configuration remains in the code.
 
 ## High-Level Architecture
 
@@ -130,7 +131,7 @@ flowchart TB
     MEETING["Meeting-to-Execution"]
     GATEWAY["Permissioned Lark<br/>Action Gateway"]
     LARK["Lark Workspace<br/>Configured Drive Folder · Minutes<br/>Tasks · Calendar · Base"]
-    MODEL["NVIDIA Nemotron<br/>3 Super 120B"]
+    MODEL["OpenAI Codex engine<br/>app-server via Python runner"]
     DB["PostgreSQL<br/>Runs · State · Audit"]
 
     UI --> APP
@@ -171,7 +172,11 @@ The backend is a modular monolith deployed as one Spring Boot application. It ow
 - Confirmation and idempotency state
 - Audit records
 
-Modules are separated in code, not deployed as independent services.
+Modules are separated in code, not deployed as independent services. The one
+exception is the Codex engine runner: a single Python sidecar that hosts the
+Codex app-server, existing only because the official Codex SDK ships in
+TypeScript and Python. It holds no product logic and is reachable solely
+through the backend's engine port.
 
 ### Synvo Agent Core
 
@@ -179,7 +184,7 @@ The Agent Core is the application-specific intelligence and orchestration layer.
 
 - Understanding the request and conversation context
 - Selecting direct response, clarification, research, or meeting workflow
-- Calling the model through a provider abstraction
+- Calling the agent engine through a provider abstraction
 - Selecting from explicitly registered tools
 - Managing workflow state
 - Publishing progress and results
