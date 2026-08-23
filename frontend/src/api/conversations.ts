@@ -20,13 +20,27 @@ export interface ConversationTurn {
 
 export interface ConversationDetail extends ConversationSummary {
   turns: ConversationTurn[]
+  activeRun: ConversationRunDescriptor | null
 }
+
+export type ConversationRunDescriptor = Omit<ConversationRun, 'replayed'>
 
 export interface TurnSubmission {
   requestId: string
   conversationId: string | null
   content: string
   replaceFailedAssistantTurnId?: string
+  reasoningEffort?: string
+  skillName?: string
+}
+
+export interface ActionHandoff {
+  taskId: string
+  interactionId: string
+  category: string
+  workspaceName: string
+  reason: string
+  permissionScope: string
 }
 
 export interface ConversationRun {
@@ -49,11 +63,13 @@ export interface ConversationStreamEvent {
     | 'content_delta'
     | 'content_reset'
     | 'tool_running'
+    | 'action_required'
     | 'completed'
     | 'failed'
   message: string | null
   delta: string | null
   presentation: WorkflowPresentation | null
+  action: ActionHandoff | null
 }
 
 export interface ConversationSubscription {
@@ -122,6 +138,7 @@ export const conversationApi: ConversationApi = {
       'content_delta',
       'content_reset',
       'tool_running',
+      'action_required',
       'completed',
       'failed',
     ]
@@ -189,7 +206,11 @@ function isConversationSummary(value: unknown): value is ConversationSummary {
 
 function isConversationDetail(value: unknown): value is ConversationDetail {
   if (!isRecord(value) || !isConversationSummary(value)) return false
-  return Array.isArray(value.turns) && value.turns.every(isTurn)
+  return (
+    Array.isArray(value.turns) &&
+    value.turns.every(isTurn) &&
+    (value.activeRun === null || isConversationRunDescriptor(value.activeRun))
+  )
 }
 
 function isTurn(value: unknown): value is ConversationTurn {
@@ -206,6 +227,13 @@ function isTurn(value: unknown): value is ConversationTurn {
 
 function isConversationRun(value: unknown): value is ConversationRun {
   return (
+    isConversationRunDescriptor(value) &&
+    typeof (value as Record<string, unknown>).replayed === 'boolean'
+  )
+}
+
+function isConversationRunDescriptor(value: unknown): value is ConversationRunDescriptor {
+  return (
     isRecord(value) &&
     typeof value.requestId === 'string' &&
     typeof value.conversationId === 'string' &&
@@ -213,8 +241,7 @@ function isConversationRun(value: unknown): value is ConversationRun {
     (typeof value.userTurnId === 'string' || value.userTurnId === null) &&
     (typeof value.assistantTurnId === 'string' || value.assistantTurnId === null) &&
     ['DIRECT_ANSWER', 'CLARIFICATION', 'RESEARCH', 'MEETING'].includes(value.intent as string) &&
-    ['RUNNING', 'COMPLETED', 'FAILED'].includes(value.status as string) &&
-    typeof value.replayed === 'boolean'
+    ['RUNNING', 'COMPLETED', 'FAILED'].includes(value.status as string)
   )
 }
 
@@ -229,19 +256,35 @@ function parseStreamEvent(value: unknown): ConversationStreamEvent | null {
       'content_delta',
       'content_reset',
       'tool_running',
+      'action_required',
       'completed',
       'failed',
     ].includes(value.type as string) &&
     (typeof value.message === 'string' || value.message === null) &&
     (typeof value.delta === 'string' || value.delta === null)
   )) return null
+  const action = isActionHandoff(value.action) ? value.action : null
+  if (value.type === 'action_required' && action === null) return null
   return {
     sequence: value.sequence as number,
     type: value.type as ConversationStreamEvent['type'],
     message: value.message as string | null,
     delta: value.delta as string | null,
     presentation: isWorkflowPresentation(value.presentation) ? value.presentation : null,
+    action,
   }
+}
+
+function isActionHandoff(value: unknown): value is ActionHandoff {
+  return (
+    isRecord(value) &&
+    hasText(value.taskId) &&
+    hasText(value.interactionId) &&
+    hasText(value.category) &&
+    hasText(value.workspaceName) &&
+    hasText(value.reason) &&
+    hasText(value.permissionScope)
+  )
 }
 
 function isAuthorizationBootstrap(value: unknown): value is { csrfToken: string } {
@@ -258,4 +301,8 @@ function readSafeError(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
 }

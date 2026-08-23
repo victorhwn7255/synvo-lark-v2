@@ -1,0 +1,5 @@
+release_id,product_area,released_on,change_failure_rate_pct,median_task_minutes,user_satisfaction_score
+REL-2606-1,Conversation foundation,2026-06-18,4.2,6.8,4.1
+REL-2607-1,H5 task management,2026-07-09,3.1,5.9,4.3
+REL-2607-2,Dynamic approvals,2026-07-24,2.8,6.1,4.4
+REL-2608-1,Live activity timeline,2026-08-12,2.4,5.5,4.5

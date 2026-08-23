@@ -5,18 +5,29 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 import synvo.agent.ConversationContextMessage.Role;
 import synvo.agent.ConversationResult.Outcome;
 import synvo.agent.ConversationResult.Status;
 import synvo.agent.ConversationStore.RunHandle;
+import synvo.agent.AgentLifecycleEvent.ActionHandoff;
 import synvo.agent.model.ModelGateway;
 import synvo.agent.model.ModelGateway.ModelCancellation;
 import synvo.agent.model.ModelGateway.ModelMessage;
 import synvo.agent.model.ModelGateway.ModelRequest;
 import synvo.agent.model.ModelGateway.ModelResponse;
 import synvo.agent.model.ModelGatewayException;
+import synvo.workspaceagent.WorkspaceAgentEngine.ActivityKind;
+import synvo.workspaceagent.WorkspaceAgentEngine.TerminalStatus;
+import synvo.workspaceagent.WorkspaceAgentException;
+import synvo.workspaceagent.WorkspaceAgentFacade.ActivityView;
+import synvo.workspaceagent.WorkspaceAgentFacade.ConversationCommand;
+import synvo.workspaceagent.WorkspaceAgentFacade.ConversationObserver;
+import synvo.workspaceagent.WorkspaceAgentFacade.InteractionView;
+import synvo.workspaceagent.WorkspaceAgentFacade.VisibleMessage;
+import synvo.workspaceagent.WorkspaceConversationAgent;
 
 @Component
 public final class SynvoAgentCore {
@@ -45,18 +56,33 @@ public final class SynvoAgentCore {
 	private static final String SAFE_CANCELLED_RESPONSE = "Response stopped.";
 	private static final String SAFE_TIMEOUT_RESPONSE =
 			"The response timed out. Please try again.";
+	private static final String CODEX_AUTHENTICATION_RESPONSE =
+			"Codex authentication is required. Open Synvo in H5 to reconnect.";
+	private static final String CODEX_BUSY_RESPONSE =
+			"Codex is busy with another task. Please try again after it finishes.";
 
 	private final IntentRouter intentRouter;
 	private final ConversationStore conversationStore;
 	private final ModelGateway modelGateway;
+	private final WorkspaceConversationAgent workspaceAgent;
+
+	@Autowired
+	public SynvoAgentCore(
+			IntentRouter intentRouter,
+			ConversationStore conversationStore,
+			ModelGateway modelGateway,
+			WorkspaceConversationAgent workspaceAgent) {
+		this.intentRouter = intentRouter;
+		this.conversationStore = conversationStore;
+		this.modelGateway = modelGateway;
+		this.workspaceAgent = workspaceAgent;
+	}
 
 	public SynvoAgentCore(
 			IntentRouter intentRouter,
 			ConversationStore conversationStore,
 			ModelGateway modelGateway) {
-		this.intentRouter = intentRouter;
-		this.conversationStore = conversationStore;
-		this.modelGateway = modelGateway;
+		this(intentRouter, conversationStore, modelGateway, null);
 	}
 
 	public ConversationResult converse(ConversationRequest request) {
@@ -98,7 +124,7 @@ public final class SynvoAgentCore {
 			return PreparedConversation.replay(request.requestId(), terminal);
 		}
 
-		PreparedConversation prepared = PreparedConversation.active(request.requestId(), run);
+		PreparedConversation prepared = PreparedConversation.active(request, run);
 		emit(prepared, listener, AgentLifecycleEvent.State.ACCEPTED, "Request accepted");
 		return prepared;
 	}
@@ -119,6 +145,9 @@ public final class SynvoAgentCore {
 		if (cancellation.isCancelled()) {
 			return failForCancellation(prepared, listener, cancellation);
 		}
+		if (workspaceAgent != null && workspaceAgent.enabled()) {
+			return generateWorkspaceAnswer(prepared, listener, cancellation);
+		}
 
 		return switch (prepared.run().intent()) {
 			case CLARIFICATION -> streamDeterministic(
@@ -131,6 +160,110 @@ public final class SynvoAgentCore {
 					MEETING_UNAVAILABLE_RESPONSE);
 			case DIRECT_ANSWER -> generateDirectAnswer(prepared, listener, cancellation);
 		};
+	}
+
+	private ConversationResult generateWorkspaceAnswer(
+			PreparedConversation prepared,
+			Consumer<AgentLifecycleEvent> listener,
+			ModelCancellation cancellation) {
+		emit(prepared, listener, AgentLifecycleEvent.State.THINKING, "Preparing a Codex task");
+		List<ConversationContextMessage> context = conversationStore.loadContext(
+				prepared.run().conversationId(), CONTEXT_MAX_MESSAGES, CONTEXT_MAX_CHARACTERS);
+		AtomicBoolean streamingStarted = new AtomicBoolean();
+		try {
+			var outcome = workspaceAgent.runConversation(
+					new ConversationCommand(
+							prepared.request().userOpenId(),
+							prepared.run().conversationId(),
+							prepared.run().runId(),
+							prepared.requestId(),
+							prepared.request().content(),
+							toVisibleMessages(context),
+							prepared.request().reasoningEffort(),
+							prepared.request().skillName()),
+					new ConversationObserver() {
+						@Override
+						public void onActivity(ActivityView activity) {
+							applyWorkspaceActivity(prepared, listener, activity);
+						}
+
+						@Override
+						public void onMessageDelta(String delta) {
+							if (streamingStarted.compareAndSet(false, true)) {
+								emit(prepared, listener, AgentLifecycleEvent.State.STREAMING,
+										"Writing a Codex result");
+							}
+							emitDelta(prepared, listener, delta);
+						}
+
+						@Override
+						public void onMessageReset() {
+							streamingStarted.set(false);
+							resetAssistantContent(prepared, listener);
+						}
+
+						@Override
+						public void onInteraction(InteractionView interaction) {
+							emitActionRequired(prepared, listener, interaction);
+						}
+					},
+					cancellation::isCancelled);
+			return switch (outcome.status()) {
+				case COMPLETED -> complete(
+						prepared, listener, Outcome.DIRECT_ANSWER, outcome.response());
+				case STOPPED -> fail(
+						prepared, listener, "USER_CANCELLED", SAFE_CANCELLED_RESPONSE);
+				case TIMEOUT -> fail(
+						prepared, listener, "CODEX_TIMEOUT", SAFE_TIMEOUT_RESPONSE);
+				case AUTHENTICATION_REQUIRED -> fail(
+						prepared, listener, "CODEX_AUTHENTICATION_REQUIRED",
+						CODEX_AUTHENTICATION_RESPONSE);
+				case USAGE_LIMITED -> fail(
+						prepared, listener, "CODEX_USAGE_LIMITED", outcome.safeMessage());
+				case PROTOCOL_INCOMPATIBLE -> fail(
+						prepared, listener, "CODEX_PROTOCOL_INCOMPATIBLE", outcome.safeMessage());
+				case ENGINE_UNAVAILABLE, FAILED -> fail(
+						prepared, listener, "CODEX_UNAVAILABLE", outcome.safeMessage());
+			};
+		}
+		catch (WorkspaceAgentException failure) {
+			return switch (failure.code()) {
+				case BUSY -> fail(prepared, listener, "ENGINE_BUSY", CODEX_BUSY_RESPONSE);
+				case AUTHENTICATION_REQUIRED -> fail(
+						prepared, listener, "CODEX_AUTHENTICATION_REQUIRED",
+						CODEX_AUTHENTICATION_RESPONSE);
+				case DISABLED, UNAVAILABLE, NOT_FOUND, FORBIDDEN, INVALID_REQUEST,
+						POLICY_DENIED, INTERACTION_EXPIRED, INTERACTION_CONFLICT,
+						PROTOCOL_INCOMPATIBLE -> fail(
+						prepared, listener, "CODEX_UNAVAILABLE", SAFE_FAILURE_RESPONSE);
+			};
+		}
+	}
+
+	private void applyWorkspaceActivity(
+			PreparedConversation prepared,
+			Consumer<AgentLifecycleEvent> listener,
+			ActivityView activity) {
+		if (activity.kind() == ActivityKind.PLAN_STARTED
+				|| activity.kind() == ActivityKind.PLAN_UPDATED
+				|| activity.kind() == ActivityKind.REASONING_STARTED
+				|| activity.kind() == ActivityKind.COMPACTED) {
+			emit(prepared, listener, AgentLifecycleEvent.State.THINKING, activity.label());
+		}
+		else if (activity.kind() == ActivityKind.COMMAND_STARTED
+				|| activity.kind() == ActivityKind.FILE_CHANGE_STARTED
+				|| activity.kind() == ActivityKind.MCP_STARTED
+				|| activity.kind() == ActivityKind.NESTED_ACTIVITY_STARTED
+				|| activity.kind() == ActivityKind.REVIEW_ENTERED) {
+			emit(prepared, listener, AgentLifecycleEvent.State.TOOL_RUNNING, activity.label());
+		}
+	}
+
+	private static List<VisibleMessage> toVisibleMessages(
+			List<ConversationContextMessage> context) {
+		return context.stream()
+				.map(message -> new VisibleMessage(message.role().name(), message.content()))
+				.toList();
 	}
 
 	ConversationResult failUnexpected(
@@ -302,6 +435,24 @@ public final class SynvoAgentCore {
 		listener.accept(event);
 	}
 
+	private void emitActionRequired(
+			PreparedConversation prepared,
+			Consumer<AgentLifecycleEvent> listener,
+			InteractionView interaction) {
+		AgentLifecycleEvent event = AgentLifecycleEvent.actionRequired(
+				prepared.nextSequence(),
+				new ActionHandoff(
+						interaction.taskId(),
+						interaction.interactionId(),
+						interaction.category(),
+						interaction.workspaceName(),
+						interaction.reason(),
+						interaction.permissionScope()));
+		conversationStore.appendEvent(prepared.run().runId(), event);
+		prepared.add(event);
+		listener.accept(event);
+	}
+
 	private static List<ModelMessage> toModelMessages(List<ConversationContextMessage> context) {
 		List<ModelMessage> messages = new ArrayList<>(context.size() + 1);
 		messages.add(new ModelMessage(ModelGateway.Role.SYSTEM, SYSTEM_PROMPT));
@@ -332,6 +483,7 @@ public final class SynvoAgentCore {
 	static final class PreparedConversation {
 
 		private final String requestId;
+		private final ConversationRequest request;
 		private final RunHandle run;
 		private final ConversationResult replay;
 		private final List<AgentLifecycleEvent> events;
@@ -340,19 +492,22 @@ public final class SynvoAgentCore {
 
 		private PreparedConversation(
 				String requestId,
+				ConversationRequest request,
 				RunHandle run,
 				ConversationResult replay,
 				List<AgentLifecycleEvent> events,
 				int nextSequence) {
 			this.requestId = requestId;
+			this.request = request;
 			this.run = run;
 			this.replay = replay;
 			this.events = events;
 			this.nextSequence = nextSequence;
 		}
 
-		static PreparedConversation active(String requestId, RunHandle run) {
-			return new PreparedConversation(requestId, run, null, new ArrayList<>(), 1);
+		static PreparedConversation active(ConversationRequest request, RunHandle run) {
+			return new PreparedConversation(
+					request.requestId(), request, run, null, new ArrayList<>(), 1);
 		}
 
 		static PreparedConversation replay(String requestId, ConversationResult replay) {
@@ -360,12 +515,16 @@ public final class SynvoAgentCore {
 					.mapToInt(AgentLifecycleEvent::sequence)
 					.max()
 					.orElse(0) + 1;
-			return new PreparedConversation(requestId, null, replay,
+			return new PreparedConversation(requestId, null, null, replay,
 					new ArrayList<>(replay.events()), nextSequence);
 		}
 
 		String requestId() {
 			return requestId;
+		}
+
+		ConversationRequest request() {
+			return request;
 		}
 
 		RunHandle run() {

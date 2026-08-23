@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import synvo.agent.AgentIntent;
 import synvo.agent.AgentLifecycleEvent;
+import synvo.agent.AgentLifecycleEvent.ActionHandoff;
+import synvo.agent.ConversationQueries;
 import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationResult;
 import synvo.agent.ConversationRunCoordinator;
@@ -35,6 +37,7 @@ class LarkDirectMessageHandlerTests {
 	private LarkConversationBindingRepository conversationBindings;
 	private LarkChannelClient channelClient;
 	private ConversationRunCoordinator conversations;
+	private ConversationQueries conversationQueries;
 	private LarkDirectMessageHandler handler;
 
 	@BeforeEach
@@ -43,8 +46,10 @@ class LarkDirectMessageHandlerTests {
 		conversationBindings = mock(LarkConversationBindingRepository.class);
 		channelClient = mock(LarkChannelClient.class);
 		conversations = mock(ConversationRunCoordinator.class);
+		conversationQueries = mock(ConversationQueries.class);
 		handler = new LarkDirectMessageHandler(
-				properties(), repository, conversationBindings, channelClient, conversations);
+				properties(), repository, conversationBindings, channelClient,
+				conversations, conversationQueries);
 		handler.setBotOpenId("ou-bot");
 	}
 
@@ -62,8 +67,12 @@ class LarkDirectMessageHandlerTests {
 			producer.produce(writer);
 			return CompletableFuture.completedFuture("reply-1");
 		});
-		when(conversations.run(any(), any())).thenAnswer(invocation -> {
-			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(1);
+		when(conversations.run(any(), any(), any())).thenAnswer(invocation -> {
+			@SuppressWarnings("unchecked")
+			Consumer<ConversationRunCoordinator.Submission> onSubmission =
+					invocation.getArgument(1);
+			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(2);
+			onSubmission.accept(submission(conversationId, runId));
 			listener.accept(new AgentLifecycleEvent(1, AgentLifecycleEvent.State.ACCEPTED, "Request accepted"));
 			listener.accept(new AgentLifecycleEvent(2, AgentLifecycleEvent.State.STREAMING, "Writing a response"));
 			listener.accept(AgentLifecycleEvent.contentDelta(3, "Discarded partial response"));
@@ -76,7 +85,7 @@ class LarkDirectMessageHandlerTests {
 		handler.handle(message);
 
 		ArgumentCaptor<ConversationRequest> request = ArgumentCaptor.forClass(ConversationRequest.class);
-		verify(conversations).run(request.capture(), any());
+		verify(conversations).run(request.capture(), any(), any());
 		assertEquals("m-1", request.getValue().requestId());
 		assertEquals("hello", request.getValue().content());
 		assertEquals("Hello Victor.", writer.content.toString());
@@ -97,8 +106,8 @@ class LarkDirectMessageHandlerTests {
 			producer.produce(writer);
 			return CompletableFuture.completedFuture("reply-failure");
 		});
-		when(conversations.run(any(), any())).thenAnswer(invocation -> {
-			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(1);
+		when(conversations.run(any(), any(), any())).thenAnswer(invocation -> {
+			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(2);
 			listener.accept(AgentLifecycleEvent.contentDelta(1, "Partial private output"));
 			listener.accept(new AgentLifecycleEvent(
 					2, AgentLifecycleEvent.State.FAILED, "I couldn’t complete that response. Please try again."));
@@ -111,6 +120,50 @@ class LarkDirectMessageHandlerTests {
 
 		assertEquals("I couldn’t complete that response. Please try again.", writer.content.toString());
 		verify(repository).markReplied("m-failure", "reply-failure");
+	}
+
+	@Test
+	void nativeInteractionProducesOneSafeOwningH5Handoff() {
+		InboundLarkMessage message = message(
+				"m-interaction", "p2p", "ou-victor", "text", "Update the workspace");
+		FakeStreamWriter writer = new FakeStreamWriter();
+		UUID taskId = UUID.randomUUID();
+		UUID interactionId = UUID.randomUUID();
+		when(repository.tryClaim(eq("m-interaction"), eq("ou-victor"), eq("p2p"), any()))
+				.thenReturn(true);
+		when(conversationBindings.findConversationId("chat-1", "ou-victor"))
+				.thenReturn(Optional.empty());
+		when(channelClient.stream(eq(message), any())).thenAnswer(invocation -> {
+			LarkChannelClient.StreamProducer producer = invocation.getArgument(1);
+			producer.produce(writer);
+			return CompletableFuture.completedFuture("reply-interaction");
+		});
+		when(conversations.run(any(), any(), any())).thenAnswer(invocation -> {
+			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(2);
+			listener.accept(AgentLifecycleEvent.actionRequired(
+					1, new ActionHandoff(
+							taskId, interactionId, "file change", "Pilot workspace",
+							"Update one file", "workspace files")));
+			listener.accept(AgentLifecycleEvent.contentDelta(2, "Change completed."));
+			listener.accept(new AgentLifecycleEvent(
+					3, AgentLifecycleEvent.State.COMPLETED, null));
+			return result(
+					UUID.randomUUID(), UUID.randomUUID(),
+					ConversationResult.Status.COMPLETED, "Change completed.");
+		});
+
+		handler.handle(message);
+
+		assertEquals(taskId, writer.shownAction.taskId());
+		assertEquals(interactionId, writer.shownAction.interactionId());
+		org.junit.jupiter.api.Assertions.assertTrue(
+				writer.shownUrl.startsWith("https://synvo.example/h5?"));
+		org.junit.jupiter.api.Assertions.assertTrue(
+				writer.shownUrl.contains("codexTask=" + taskId));
+		org.junit.jupiter.api.Assertions.assertTrue(
+				writer.shownUrl.contains("codexInteraction=" + interactionId));
+		assertEquals("Change completed.", writer.content.toString());
+		org.junit.jupiter.api.Assertions.assertTrue(writer.clearCount > 0);
 	}
 
 	@Test
@@ -127,7 +180,7 @@ class LarkDirectMessageHandlerTests {
 
 		handler.handle(message);
 
-		verify(conversations, never()).run(any(), any());
+		verify(conversations, never()).run(any(), any(), any());
 		verify(channelClient).respond(message, LarkDirectMessageHandler.DELIVERY_FAILURE_REPLY);
 		verify(repository).markReplied("m-stream-failure", "fallback-reply");
 		verify(repository, never()).markFailed(any(), any());
@@ -188,7 +241,43 @@ class LarkDirectMessageHandlerTests {
 
 		verify(channelClient, never()).respond(any(), any());
 		verify(channelClient, never()).stream(any(), any());
-		verify(conversations, never()).run(any(), any());
+		verify(conversations, never()).run(any(), any(), any());
+	}
+
+	@Test
+	void nativeStopCommandCancelsTheBoundActiveRunWithoutStartingAnotherTurn() {
+		InboundLarkMessage message = message(
+				"m-stop", "p2p", "ou-victor", "text", " /STOP ");
+		UUID conversationId = UUID.randomUUID();
+		UUID runId = UUID.randomUUID();
+		when(repository.tryClaim(eq("m-stop"), eq("ou-victor"), eq("p2p"), any()))
+				.thenReturn(true);
+		when(conversationBindings.findConversationId("chat-1", "ou-victor"))
+				.thenReturn(Optional.of(conversationId));
+		when(conversationQueries.findConversation("ou-victor", conversationId))
+				.thenReturn(Optional.of(new ConversationQueries.ConversationDetail(
+						conversationId,
+						"Active task",
+						Instant.now(),
+						List.of(),
+						new ConversationQueries.RunDescriptor(
+								runId,
+								"request-active",
+								conversationId,
+								UUID.randomUUID(),
+								UUID.randomUUID(),
+								AgentIntent.DIRECT_ANSWER,
+								ConversationQueries.RunStatus.RUNNING))));
+		when(conversations.stop(runId)).thenReturn(true);
+		when(channelClient.respond(message, LarkDirectMessageHandler.STOP_REQUESTED_REPLY))
+				.thenReturn(CompletableFuture.completedFuture("reply-stop"));
+
+		handler.handle(message);
+
+		verify(conversations).stop(runId);
+		verify(conversations, never()).run(any(), any(), any());
+		verify(channelClient).respond(message, LarkDirectMessageHandler.STOP_REQUESTED_REPLY);
+		verify(repository).markReplied("m-stop", "reply-stop");
 	}
 
 	private static ConversationResult result(
@@ -209,6 +298,14 @@ class LarkDirectMessageHandlerTests {
 				false);
 	}
 
+	private static ConversationRunCoordinator.Submission submission(
+			UUID conversationId,
+			UUID runId) {
+		return new ConversationRunCoordinator.Submission(
+				"request", conversationId, runId, UUID.randomUUID(), UUID.randomUUID(),
+				AgentIntent.DIRECT_ANSWER, "RUNNING", false);
+	}
+
 	private static InboundLarkMessage message(
 			String id, String chatType, String sender, String contentType, String content) {
 		return new InboundLarkMessage(
@@ -223,7 +320,7 @@ class LarkDirectMessageHandlerTests {
 				"secret-test",
 				"websocket",
 				"ou-victor",
-				null,
+				"https://synvo.example/h5",
 				Base64.getEncoder().encodeToString(new byte[32]),
 				Duration.ofMinutes(5),
 				Duration.ofDays(30));
@@ -232,6 +329,9 @@ class LarkDirectMessageHandlerTests {
 	private static final class FakeStreamWriter implements LarkChannelClient.StreamWriter {
 
 		private final StringBuilder content = new StringBuilder();
+		private ActionHandoff shownAction;
+		private String shownUrl;
+		private int clearCount;
 
 		@Override
 		public void append(String delta) {
@@ -242,6 +342,17 @@ class LarkDirectMessageHandlerTests {
 		public void setContent(String replacement) {
 			content.setLength(0);
 			content.append(replacement);
+		}
+
+		@Override
+		public void showActionRequired(ActionHandoff handoff, String h5Url) {
+			shownAction = handoff;
+			shownUrl = h5Url;
+		}
+
+		@Override
+		public void clearActionRequired() {
+			clearCount++;
 		}
 	}
 }

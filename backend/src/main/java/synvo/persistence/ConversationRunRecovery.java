@@ -9,7 +9,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 final class ConversationRunRecovery implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(ConversationRunRecovery.class);

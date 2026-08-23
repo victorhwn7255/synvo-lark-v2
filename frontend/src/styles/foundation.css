@@ -34,11 +34,42 @@
   --negative: #cb455d;
   --negative-soft: #ffebef;
   --focus: #5b3ff0;
+  --scrollbar-track: color-mix(in srgb, var(--surface-muted) 82%, transparent);
+  --scrollbar-thumb: color-mix(in srgb, var(--violet) 58%, var(--border-strong));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--violet) 78%, var(--cyan));
   color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
+}
+
+.workspace-themed-scrollbar {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.workspace-themed-scrollbar::-webkit-scrollbar {
+  width: .62rem;
+  height: .62rem;
+}
+
+.workspace-themed-scrollbar::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: var(--scrollbar-track);
+}
+
+.workspace-themed-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.workspace-themed-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
 }
 
 html {
@@ -165,4 +196,3 @@ a:focus-visible {
   right: .28rem;
   bottom: .66rem;
 }
-

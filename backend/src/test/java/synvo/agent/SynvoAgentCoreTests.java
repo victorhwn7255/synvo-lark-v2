@@ -13,12 +13,152 @@ import synvo.agent.ConversationResult.Outcome;
 import synvo.agent.ConversationResult.Status;
 import synvo.agent.model.ModelGateway;
 import synvo.agent.model.ModelGatewayException;
+import synvo.workspaceagent.WorkspaceAgentEngine.ActivityKind;
+import synvo.workspaceagent.WorkspaceAgentEngine.InteractionDecision;
+import synvo.workspaceagent.WorkspaceAgentEngine.InteractionKind;
+import synvo.workspaceagent.WorkspaceAgentEngine.TerminalStatus;
+import synvo.workspaceagent.WorkspaceAgentFacade.ActivityView;
+import synvo.workspaceagent.WorkspaceAgentFacade.ConversationCommand;
+import synvo.workspaceagent.WorkspaceAgentFacade.ConversationObserver;
+import synvo.workspaceagent.WorkspaceAgentFacade.ConversationOutcome;
+import synvo.workspaceagent.WorkspaceAgentFacade.InteractionView;
+import synvo.workspaceagent.WorkspaceConversationAgent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SynvoAgentCoreTests {
+
+	@Test
+	void enabledWorkspaceAgentOwnsTheAgenticTurnWithoutCallingTheLegacyModel() {
+		FakeConversationStore store = new FakeConversationStore();
+		FakeModelGateway model = FakeModelGateway.responding("must not be used");
+		List<ConversationCommand> commands = new ArrayList<>();
+		UUID taskId = UUID.randomUUID();
+		UUID operationId = UUID.randomUUID();
+		UUID interactionId = UUID.randomUUID();
+		WorkspaceConversationAgent workspaceAgent = new WorkspaceConversationAgent() {
+			@Override
+			public boolean enabled() {
+				return true;
+			}
+
+			@Override
+			public ConversationOutcome runConversation(
+					ConversationCommand command,
+					ConversationObserver observer,
+					java.util.function.BooleanSupplier cancellation) {
+				commands.add(command);
+				observer.onInteraction(new InteractionView(
+						interactionId,
+						taskId,
+						operationId,
+						"pilot",
+						"Pilot workspace",
+						InteractionKind.COMMAND_APPROVAL,
+						"shell command",
+						"Run focused tests",
+						"workspace command",
+						List.of(InteractionDecision.APPROVE_ONCE, InteractionDecision.DECLINE),
+						"PENDING",
+						null,
+						java.time.Instant.now().plusSeconds(60),
+						null));
+				observer.onActivity(new ActivityView(
+						0, ActivityKind.COMMAND_STARTED, "Running tests", null,
+						false, null));
+				observer.onMessageDelta("Codex ");
+				observer.onMessageDelta("\n");
+				observer.onMessageDelta("completed.");
+				return new ConversationOutcome(
+						UUID.randomUUID(), UUID.randomUUID(), TerminalStatus.COMPLETED,
+						"Codex \ncompleted.", "Codex completed the task.");
+			}
+
+			@Override
+			public void stopConversationRun(UUID conversationRunId) {
+			}
+		};
+		SynvoAgentCore core = new SynvoAgentCore(
+				new IntentRouter(), store, model, workspaceAgent);
+
+		ConversationResult result = core.converse(new ConversationRequest(
+				"codex-free-form-1", null, "ou-victor",
+				"Research the launch plan in this workspace", null,
+				"high", "workspace-audit"));
+
+		assertEquals(Status.COMPLETED, result.status());
+		assertEquals("Codex \ncompleted.", result.response());
+		assertTrue(model.requests().isEmpty());
+		assertEquals(1, commands.size());
+		assertEquals("ou-victor", commands.getFirst().ownerOpenId());
+		assertEquals("high", commands.getFirst().reasoningEffort());
+		assertEquals("workspace-audit", commands.getFirst().skillName());
+		AgentLifecycleEvent action = result.events().stream()
+				.filter(event -> event.state() == State.ACTION_REQUIRED)
+				.findFirst()
+				.orElseThrow();
+		assertEquals(taskId, action.actionHandoff().taskId());
+		assertEquals(interactionId, action.actionHandoff().interactionId());
+		assertEquals("Pilot workspace", action.actionHandoff().workspaceName());
+		assertEquals(List.of("Codex ", "\n", "completed."), result.events().stream()
+				.filter(event -> event.state() == State.CONTENT_DELTA)
+				.map(AgentLifecycleEvent::contentDelta)
+				.toList());
+		assertTrue(states(result).contains(State.TOOL_RUNNING));
+	}
+
+	@Test
+	void workspaceAgentResetReplacesTransientNarrationBeforeTheStoredResult() {
+		FakeConversationStore store = new FakeConversationStore();
+		WorkspaceConversationAgent workspaceAgent = new WorkspaceConversationAgent() {
+			@Override
+			public boolean enabled() {
+				return true;
+			}
+
+			@Override
+			public ConversationOutcome runConversation(
+					ConversationCommand command,
+					ConversationObserver observer,
+					java.util.function.BooleanSupplier cancellation) {
+				observer.onMessageDelta("I will inspect the workspace.");
+				observer.onMessageReset();
+				observer.onActivity(new ActivityView(
+						0, ActivityKind.COMMAND_STARTED, "Inspecting workspace", null,
+						false, null));
+				observer.onMessageDelta("AGENTS.md\nbackend\nfrontend");
+				return new ConversationOutcome(
+						UUID.randomUUID(), UUID.randomUUID(), TerminalStatus.COMPLETED,
+						"AGENTS.md\nbackend\nfrontend", "Codex completed the task.");
+			}
+
+			@Override
+			public void stopConversationRun(UUID conversationRunId) {
+			}
+		};
+		SynvoAgentCore core = new SynvoAgentCore(
+				new IntentRouter(), store, FakeModelGateway.responding("must not be used"),
+				workspaceAgent);
+
+		ConversationResult result = core.converse(new ConversationRequest(
+				"codex-reset-1", null, "ou-victor", "Inspect the workspace", null,
+				null, null));
+
+		assertEquals("AGENTS.md\nbackend\nfrontend", result.response());
+		assertEquals(1, store.resetCount);
+		assertEquals(List.of(
+				State.ACCEPTED,
+				State.THINKING,
+				State.STREAMING,
+				State.CONTENT_DELTA,
+				State.CONTENT_RESET,
+				State.TOOL_RUNNING,
+				State.STREAMING,
+				State.CONTENT_DELTA,
+				State.COMPLETED), states(result));
+	}
 
 	@Test
 	void directAnswerUsesBoundedContextAndReachesCompleted() {

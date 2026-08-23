@@ -1,0 +1,6 @@
+cost_center,owner_team,annual_budget_usd,actual_jan_jul_usd,forecast_2026_usd,status
+FIN-100,Finance Operations,180000,101500,176000,on_track
+PROD-210,Product Development,720000,448000,758000,watch
+GTM-310,Sales and Marketing,460000,251000,438000,on_track
+CS-410,Customer Success,260000,148000,266000,watch
+CORP-510,General and Administrative,240000,132000,231000,on_track

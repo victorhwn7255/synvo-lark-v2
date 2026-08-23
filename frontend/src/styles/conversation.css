@@ -11,6 +11,7 @@
   display: block;
   overflow: auto;
   padding: 2.5rem 1.5rem;
+  overscroll-behavior: contain;
 }
 
 .workspace-empty-state {
@@ -204,6 +205,36 @@
   margin: 0;
 }
 
+.workspace-turn[data-role="assistant"] .workspace-turn__content .assistant-compact-result {
+  max-width: 48rem;
+}
+
+.workspace-turn[data-role="assistant"] .workspace-turn__content .assistant-compact-result__label {
+  margin: 0 0 .55rem;
+  color: var(--ink-soft);
+  font-size: .68rem;
+  font-weight: 760;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.workspace-turn[data-role="assistant"] .workspace-turn__content ul.assistant-compact-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  column-gap: 2rem;
+  row-gap: .3rem;
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.workspace-turn[data-role="assistant"] .workspace-turn__content .assistant-compact-list li {
+  min-width: 0;
+  margin: 0;
+  padding-left: .16rem;
+  line-height: 1.48;
+  overflow-wrap: anywhere;
+}
+
 .workspace-turn[data-role="assistant"] .workspace-turn__content strong {
   color: var(--ink);
   font-weight: 740;
@@ -215,6 +246,18 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 38%, transparent);
   text-underline-offset: .18em;
+}
+
+.workspace-turn[data-role="assistant"] .workspace-turn__content .assistant-workspace-reference {
+  display: inline;
+  border: 1px solid color-mix(in srgb, var(--violet) 28%, var(--border));
+  border-radius: .4rem;
+  background: color-mix(in srgb, var(--violet) 9%, transparent);
+  padding: .08em .32em;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: .88em;
+  overflow-wrap: anywhere;
 }
 
 .workspace-turn[data-role="assistant"] .workspace-turn__content blockquote {
@@ -463,4 +506,3 @@
   color: white;
   cursor: pointer;
 }
-

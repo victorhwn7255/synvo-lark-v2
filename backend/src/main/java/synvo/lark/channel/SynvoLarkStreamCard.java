@@ -4,6 +4,7 @@ import com.lark.oapi.channel.model.CardStreamController;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import synvo.agent.AgentLifecycleEvent.ActionHandoff;
 
 final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 
@@ -14,13 +15,15 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 
 	private final CardStreamController controller;
 	private final StringBuilder content = new StringBuilder();
+	private ActionHandoff actionHandoff;
+	private String actionUrl;
 
 	SynvoLarkStreamCard(CardStreamController controller) {
 		this.controller = controller;
 	}
 
 	static Map<String, Object> initialCard() {
-		return cardFor("");
+		return cardFor("", null, null);
 	}
 
 	@Override
@@ -29,7 +32,7 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 			return;
 		}
 		content.append(delta);
-		controller.update(cardFor(content.toString()));
+		controller.update(cardFor(content.toString(), actionHandoff, actionUrl));
 	}
 
 	@Override
@@ -38,11 +41,34 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 		if (replacement != null) {
 			content.append(replacement);
 		}
-		controller.update(cardFor(content.toString()));
+		controller.update(cardFor(content.toString(), actionHandoff, actionUrl));
 	}
 
-	private static Map<String, Object> cardFor(String answer) {
+	@Override
+	public void showActionRequired(ActionHandoff handoff, String h5Url) {
+		actionHandoff = handoff;
+		actionUrl = h5Url;
+		controller.update(cardFor(content.toString(), actionHandoff, actionUrl));
+	}
+
+	@Override
+	public void clearActionRequired() {
+		if (actionHandoff == null) {
+			return;
+		}
+		actionHandoff = null;
+		actionUrl = null;
+		controller.update(cardFor(content.toString(), null, null));
+	}
+
+	private static Map<String, Object> cardFor(
+			String answer,
+			ActionHandoff handoff,
+			String h5Url) {
 		String visibleContent = answer == null || answer.isBlank() ? WAITING_TEXT : answer;
+		if (handoff != null) {
+			visibleContent = visibleContent + "\n\n" + handoffContent(handoff, h5Url);
+		}
 
 		Map<String, Object> markdown = new LinkedHashMap<>();
 		markdown.put("tag", "markdown");
@@ -63,6 +89,36 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 		card.put("config", config);
 		card.put("body", body);
 		return card;
+	}
+
+	private static String handoffContent(ActionHandoff handoff, String h5Url) {
+		StringBuilder value = new StringBuilder()
+				.append("**Approval required**\n")
+				.append("- Action: ").append(markdownText(handoff.category())).append("\n")
+				.append("- Workspace: ").append(markdownText(handoff.workspaceName())).append("\n")
+				.append("- Reason: ").append(markdownText(handoff.reason())).append("\n")
+				.append("- Permission: ").append(markdownText(handoff.permissionScope())).append("\n\n");
+		if (h5Url == null || h5Url.isBlank()) {
+			return value.append("Open in H5 to review and approve.").toString();
+		}
+		return value.append("[Open in H5 to review and approve](")
+				.append(h5Url)
+				.append(")")
+				.toString();
+	}
+
+	private static String markdownText(String value) {
+		return value
+				.replace("\\", "\\\\")
+				.replace("*", "\\*")
+				.replace("_", "\\_")
+				.replace("[", "\\[")
+				.replace("]", "\\]")
+				.replace("(", "\\(")
+				.replace(")", "\\)")
+				.replace("`", "\\`")
+				.replace("\n", " ")
+				.replace("\r", " ");
 	}
 
 	private static String summarize(String value) {

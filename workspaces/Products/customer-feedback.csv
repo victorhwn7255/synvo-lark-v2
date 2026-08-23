@@ -1,0 +1,7 @@
+feedback_id,segment,product_area,theme,sentiment,summary
+FB-001,Operations,Codex in Lark,workspace_clarity,negative,"Workspace names do not explain which local folder is being used."
+FB-002,Finance,Codex in Lark,approval_visibility,positive,"Exact commands are helpful when deciding whether to approve an action."
+FB-003,Product,Research briefs,source_quality,neutral,"Briefs need a consistent section for assumptions and unresolved questions."
+FB-004,Sales,Codex in Lark,progress_visibility,positive,"The live activity timeline makes long-running work easier to follow."
+FB-005,Leadership,Reporting,artifact_export,negative,"Finished reports should be easier to find and download."
+FB-006,Operations,Codex in Lark,task_recovery,positive,"Tasks remain available after reconnecting the H5 application."

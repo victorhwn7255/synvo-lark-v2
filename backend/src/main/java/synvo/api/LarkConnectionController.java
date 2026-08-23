@@ -126,7 +126,7 @@ class LarkConnectionController {
 	@ExceptionHandler(LarkAuthorizationService.PilotAccessDeniedException.class)
 	@ResponseStatus(HttpStatus.FORBIDDEN)
 	ApiError pilotDenied() {
-		return new ApiError("PILOT_ACCESS_DENIED", "This Phase 1 pilot is restricted to Victor.");
+		return new ApiError("PILOT_ACCESS_DENIED", "This single-user release is restricted to Victor.");
 	}
 
 	@ExceptionHandler(LarkAuthorizationService.AuthorizationCodeReplayException.class)

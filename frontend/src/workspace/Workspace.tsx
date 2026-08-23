@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import type { BotConnection } from '../api/lark'
 import type { ConversationApi } from '../api/conversations'
+import type { CodexApi } from '../api/codex'
+import { CodexWorkspace } from '../codex/CodexWorkspace'
 import { ConversationView } from '../conversation/ConversationView'
 import { useConversation } from '../conversation/useConversation'
 import { ArtifactPanel } from './ArtifactPanel'
@@ -15,6 +17,7 @@ interface WorkspaceProps {
   userAvatarUrl?: string | null
   onSignOut: () => void
   api?: ConversationApi
+  workspaceAgentApi?: CodexApi
 }
 
 const connectionNotices: Partial<Record<BotConnection, string>> = {
@@ -27,6 +30,37 @@ const connectionNotices: Partial<Record<BotConnection, string>> = {
 type WorkspaceView = 'conversation' | 'settings'
 
 export function Workspace({
+  botConnection,
+  busy,
+  userAvatarUrl = null,
+  onSignOut,
+  api,
+  workspaceAgentApi,
+}: WorkspaceProps) {
+  if (workspaceAgentApi) {
+    return (
+      <CodexWorkspace
+        botConnection={botConnection}
+        busy={busy}
+        userAvatarUrl={userAvatarUrl}
+        onSignOut={onSignOut}
+        conversationApi={api}
+        codexApi={workspaceAgentApi}
+      />
+    )
+  }
+  return (
+    <LegacyWorkspace
+      botConnection={botConnection}
+      busy={busy}
+      userAvatarUrl={userAvatarUrl}
+      onSignOut={onSignOut}
+      api={api}
+    />
+  )
+}
+
+function LegacyWorkspace({
   botConnection,
   busy,
   userAvatarUrl = null,

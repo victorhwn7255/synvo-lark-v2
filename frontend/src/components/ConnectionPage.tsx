@@ -17,7 +17,7 @@ const botPresentation: Record<
 > = {
   disabled: { label: 'Disabled', tone: 'neutral', copy: 'Available when Lark is enabled locally.' },
   connecting: { label: 'Connecting', tone: 'working', copy: 'Establishing a private WebSocket channel.' },
-  connected: { label: 'Live', tone: 'positive', copy: 'Ready for direct messages from Victor.' },
+  connected: { label: 'Live', tone: 'positive', copy: 'Ready for Codex tasks from Victor.' },
   reconnecting: { label: 'Reconnecting', tone: 'warning', copy: 'Restoring the Lark channel automatically.' },
   failed: { label: 'Needs attention', tone: 'negative', copy: 'The Lark channel could not connect.' },
 }
@@ -50,12 +50,12 @@ export function ConnectionPage({
 
       <main id="main" className="connection-layout">
         <section className="hero-copy" aria-labelledby="page-title">
-          <div className="eyebrow"><span aria-hidden="true" />Phase 1 · Secure connection</div>
-          <h1 id="page-title">A natural workspace, connected to Lark.</h1>
-          <p className="hero-copy__lede">Synvo brings conversations and permissioned actions together in one calm, Lark-native experience.</p>
+          <div className="eyebrow"><span aria-hidden="true" />Phase 3 · Codex in Lark</div>
+          <h1 id="page-title">Your Codex workspace, inside Lark.</h1>
+          <p className="hero-copy__lede">Run controlled Codex tasks in configured workspaces through one focused, Lark-native interface.</p>
           <div className="trust-note">
             <ShieldIcon />
-            <p><strong>Private by design.</strong>Your Lark access tokens stay encrypted in the backend and never enter this interface.</p>
+            <p><strong>Private by design.</strong>Lark and Codex credentials remain inside their separate backend and runner boundaries.</p>
           </div>
         </section>
 
@@ -63,7 +63,7 @@ export function ConnectionPage({
           <div className="connection-card__header">
             <div>
               <p className="overline">Connection center</p>
-              <h2 id="connection-title">{isAuthorized ? `Welcome, ${connection.user?.displayName ?? 'Victor'}` : 'Connect Synvo'}</h2>
+              <h2 id="connection-title">{isAuthorized ? `Welcome, ${connection.user?.displayName ?? 'Victor'}` : 'Connect Codex in Lark'}</h2>
             </div>
             <div className={`signal-orb signal-orb--${bot.tone}`} aria-hidden="true"><span /></div>
           </div>
@@ -83,7 +83,7 @@ export function ConnectionPage({
                   <h3>Lark identity</h3>
                   <StatusChip label={isAuthorized ? 'Authorized' : connection.larkEnabled ? 'Not connected' : 'Disabled'} tone={isAuthorized ? 'positive' : 'neutral'} />
                 </div>
-                <p>{isAuthorized ? `Signed in securely as ${connection.user?.displayName ?? 'Victor'}.` : insideLark ? 'Authorize once to prepare permissioned Lark actions.' : 'Open the Synvo Web App inside Lark to authorize.'}</p>
+                <p>{isAuthorized ? `Signed in securely as ${connection.user?.displayName ?? 'Victor'}.` : insideLark ? 'Authorize once to open your Codex in Lark workspace.' : 'Open the Synvo Web App inside Lark to authorize.'}</p>
               </div>
             </div>
           </div>
@@ -109,7 +109,7 @@ export function ConnectionPage({
             )}
           </div>
 
-          <p className="connection-card__footnote">{connection.larkEnabled ? 'Victor-only pilot · Direct messages only' : 'Local foundation mode · Lark disabled'}</p>
+          <p className="connection-card__footnote">{connection.larkEnabled ? 'Single-user workspace · Lark Chat and H5' : 'Local foundation mode · Lark disabled'}</p>
         </section>
       </main>
     </div>

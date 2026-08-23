@@ -14,10 +14,63 @@ class ExternalIntegrationConfigurationTests {
 	void disabledIntegrationsAllowEmptyCredentials() {
 		try (AnnotationConfigApplicationContext context = contextWith(
 				"synvo.lark.enabled=false",
-				"synvo.model.enabled=false")) {
+				"synvo.model.enabled=false",
+				"synvo.codex.enabled=false")) {
 			assertNotNull(context.getBean(LarkProperties.class));
 			assertNotNull(context.getBean(ModelProperties.class));
+			assertNotNull(context.getBean(CodexProperties.class));
 		}
+	}
+
+	@Test
+	void enabledCodexRequiresThePinnedStableRuntimeAndOneConfiguredDefaultWorkspace() {
+		RuntimeException substituted = assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.codex.enabled=true",
+				"synvo.codex.runner-base-url=http://codex-runner:8765",
+				"synvo.codex.model=another-model",
+				"synvo.codex.runtime-version=0.148.0"));
+		assertFalse(allMessages(substituted).contains("another-model"));
+
+		RuntimeException unbounded = assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.codex.enabled=true",
+				"synvo.codex.runner-base-url=http://codex-runner:8765",
+				"synvo.codex.model=gpt-5.6-sol",
+				"synvo.codex.runtime-version=0.148.0",
+				"synvo.codex.workspaces[0].id=pilot",
+				"synvo.codex.workspaces[0].display-name=Pilot",
+				"synvo.codex.workspaces[0].runner-root=relative/path",
+				"synvo.codex.workspaces[0].native-chat-default=true"));
+		assertFalse(allMessages(unbounded).contains("relative/path"));
+	}
+
+	@Test
+	void enabledCodexAcceptsOneCanonicalWorkspaceWithoutPrintingItsPath() {
+		String privatePath = "/workspaces/must-not-appear-pilot";
+		try (AnnotationConfigApplicationContext context = contextWith(
+				"synvo.codex.enabled=true",
+				"synvo.codex.runner-base-url=http://codex-runner:8765",
+				"synvo.codex.model=gpt-5.6-sol",
+				"synvo.codex.runtime-version=0.148.0",
+				"synvo.codex.workspaces[0].id=pilot",
+				"synvo.codex.workspaces[0].display-name=Pilot",
+				"synvo.codex.workspaces[0].runner-root=" + privatePath,
+				"synvo.codex.workspaces[0].native-chat-default=true",
+				"synvo.codex.workspaces[0].write-enabled=true")) {
+			String rendered = context.getBean(CodexProperties.class).toString();
+			assertFalse(rendered.contains(privatePath));
+		}
+	}
+
+	@Test
+	void codexConfigurationRejectsLarkMcpAccess() {
+		assertThrows(RuntimeException.class, () -> contextWith(
+				"synvo.codex.enabled=true",
+				"synvo.codex.runner-base-url=http://codex-runner:8765",
+				"synvo.codex.workspaces[0].id=pilot",
+				"synvo.codex.workspaces[0].display-name=Pilot",
+				"synvo.codex.workspaces[0].runner-root=/workspaces/pilot",
+				"synvo.codex.workspaces[0].native-chat-default=true",
+				"synvo.codex.allowed-mcp-servers[0]=lark-drive"));
 	}
 
 	@Test
@@ -101,7 +154,7 @@ class ExternalIntegrationConfigurationTests {
 				"synvo.lark.enabled=false",
 				"synvo.model.enabled=false"));
 		assertThrows(RuntimeException.class, () -> contextWith(
-				"synvo.agent.response-timeout=11m",
+				"synvo.agent.response-timeout=121m",
 				"synvo.lark.enabled=false",
 				"synvo.model.enabled=false"));
 	}

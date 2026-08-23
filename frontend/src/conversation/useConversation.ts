@@ -7,6 +7,7 @@ import {
   type ConversationSubscription,
   type ConversationSummary,
   type ConversationTurn,
+  type ActionHandoff,
 } from '../api/conversations'
 
 export type RunPhase =
@@ -14,6 +15,7 @@ export type RunPhase =
   | 'thinking'
   | 'streaming'
   | 'tool_running'
+  | 'action_required'
   | 'reconnecting'
   | 'stopping'
 
@@ -35,6 +37,11 @@ interface UseConversationOptions {
   onDeleteAnimationFinished?: () => void
 }
 
+export interface TurnOptions {
+  reasoningEffort?: string
+  skillName?: string
+}
+
 export function useConversation({
   api = conversationApi,
   onSelectedConversationDeleted,
@@ -48,12 +55,18 @@ export function useConversation({
   const [conversationError, setConversationError] = useState<string | null>(null)
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null)
   const [presentations, setPresentations] = useState<WorkflowPresentation[]>([])
+  const [interactionHandoff, setInteractionHandoff] = useState<ActionHandoff | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null)
   const [deletingConversation, setDeletingConversation] = useState(false)
   const [deleteConversationError, setDeleteConversationError] = useState<string | null>(null)
   const [exitingConversationId, setExitingConversationId] = useState<string | null>(null)
   const streamRef = useRef<ConversationSubscription | null>(null)
+  const applyStreamEventRef = useRef<(
+    event: ConversationStreamEvent,
+    assistantTurnId: string,
+  ) => void>(() => {})
   const runInFlightRef = useRef(false)
+  const lastTurnOptionsRef = useRef<TurnOptions>({})
   const deleteExitTimerRef = useRef<number | null>(null)
 
   const refreshRecent = useCallback(async (signal?: AbortSignal) => {
@@ -80,6 +93,7 @@ export function useConversation({
     streamRef.current = null
     setSelectedConversation(id)
     setPresentations([])
+    setInteractionHandoff(null)
     setConversationError(null)
     if (id === null) {
       setTurns([])
@@ -89,6 +103,28 @@ export function useConversation({
     try {
       const detail = await api.get(id)
       setTurns(detail.turns)
+      const reconnect = detail.activeRun
+      if (reconnect?.assistantTurnId) {
+        runInFlightRef.current = true
+        setActiveRun({
+          requestId: reconnect.requestId,
+          runId: reconnect.runId,
+          assistantTurnId: reconnect.assistantTurnId,
+          phase: 'reconnecting',
+        })
+        let subscription: ConversationSubscription | null = null
+        subscription = api.subscribe(
+          reconnect.runId,
+          (event) => {
+            applyStreamEventRef.current(event, reconnect.assistantTurnId!)
+            if (event.type === 'completed' || event.type === 'failed') subscription?.close()
+          },
+          () => setActiveRun((current) => current
+            ? { ...current, phase: 'reconnecting' }
+            : current),
+        )
+        streamRef.current = subscription
+      }
     } catch (error: unknown) {
       setConversationError(safeMessage(error))
       setTurns([])
@@ -112,7 +148,13 @@ export function useConversation({
     if (event.presentation) {
       setPresentations((current) => upsertPresentation(current, event.presentation!))
     }
+    if (event.type === 'action_required' && event.action) {
+      setInteractionHandoff(event.action)
+      setActiveRun((current) => current ? { ...current, phase: 'action_required' } : current)
+      return
+    }
     if (event.type === 'content_delta' && event.delta) {
+      setInteractionHandoff(null)
       setTurns((current) => current.map((turn) => turn.turnId === assistantTurnId
         ? { ...turn, content: turn.content + event.delta, status: 'STREAMING' }
         : turn))
@@ -120,6 +162,7 @@ export function useConversation({
       return
     }
     if (event.type === 'content_reset') {
+      setInteractionHandoff(null)
       setTurns((current) => current.map((turn) => turn.turnId === assistantTurnId
         ? { ...turn, content: '', status: 'PENDING' }
         : turn))
@@ -127,6 +170,7 @@ export function useConversation({
       return
     }
     if (event.type === 'failed') {
+      setInteractionHandoff(null)
       const now = new Date().toISOString()
       setTurns((current) => current.map((turn) => turn.turnId === assistantTurnId
         ? {
@@ -140,6 +184,7 @@ export function useConversation({
       return
     }
     if (event.type === 'completed') {
+      setInteractionHandoff(null)
       const now = new Date().toISOString()
       setTurns((current) => current.map((turn) => turn.turnId === assistantTurnId
         ? { ...turn, status: 'COMPLETED', updatedAt: now }
@@ -153,14 +198,17 @@ export function useConversation({
         : current)
     }
   }, [finishStream])
+  applyStreamEventRef.current = applyStreamEvent
 
   const submitMessage = useCallback(async (
     rawContent: string,
     retryTarget?: RetryTarget,
+    options: TurnOptions = {},
   ) => {
     const content = rawContent.trim()
     if (!content || activeRun || runInFlightRef.current) return
     runInFlightRef.current = true
+    if (!retryTarget) lastTurnOptionsRef.current = options
     const requestId = createRequestId()
     const localUserTurnId = `local-user-${requestId}`
     const localAssistantTurnId = `local-assistant-${requestId}`
@@ -183,6 +231,7 @@ export function useConversation({
     }
 
     setConversationError(null)
+    setInteractionHandoff(null)
     setComposerValue('')
     setTurns((current) => retryTarget
       ? current.map((turn) => turn.turnId === retryTarget.assistantTurn.turnId
@@ -203,6 +252,8 @@ export function useConversation({
           ...(retryTarget
             ? { replaceFailedAssistantTurnId: retryTarget.assistantTurn.turnId }
             : {}),
+          ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
+          ...(options.skillName ? { skillName: options.skillName } : {}),
         },
         csrfToken,
       )
@@ -269,7 +320,7 @@ export function useConversation({
       void submitMessage(priorUserTurn.content, {
         userTurn: priorUserTurn,
         assistantTurn: failedTurn,
-      })
+      }, lastTurnOptionsRef.current)
     }
   }, [submitMessage, turns])
 
@@ -313,6 +364,7 @@ export function useConversation({
         setSelectedConversation(null)
         setTurns([])
         setPresentations([])
+        setInteractionHandoff(null)
         setConversationError(null)
         onSelectedConversationDeleted?.()
       }
@@ -345,6 +397,7 @@ export function useConversation({
     conversationError,
     activeRun,
     presentations,
+    interactionHandoff,
     deleteTarget,
     deletingConversation,
     deleteConversationError,

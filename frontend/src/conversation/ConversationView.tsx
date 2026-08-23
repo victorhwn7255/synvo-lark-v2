@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import type { ConversationTurn } from '../api/conversations'
 import { AssistantMarkdown } from '../components/AssistantMarkdown'
 import type { ActiveRun, RunPhase } from './useConversation'
@@ -28,6 +28,11 @@ export function ConversationView({
   onSubmit,
   onStop,
   onRetry,
+  onBranch,
+  composerControls,
+  activityPresentation,
+  composerDisabled = false,
+  composerPlaceholder,
 }: {
   turns: ConversationTurn[]
   userAvatarUrl: string | null
@@ -39,6 +44,11 @@ export function ConversationView({
   onSubmit: (content: string) => void
   onStop: () => void
   onRetry: (failedTurnId: string) => void
+  onBranch?: () => void
+  composerControls?: ReactNode
+  activityPresentation?: ReactNode
+  composerDisabled?: boolean
+  composerPlaceholder?: string
 }) {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const streamViewportRef = useRef<HTMLDivElement>(null)
@@ -46,6 +56,9 @@ export function ConversationView({
   const stickToBottomRef = useRef(true)
 
   const lastUserTurnId = turns.findLast(({ role }) => role === 'USER')?.turnId ?? null
+  const activityTurnId = activeRun?.assistantTurnId
+    ?? turns.findLast(({ role }) => role === 'ASSISTANT')?.turnId
+    ?? null
 
   useLayoutEffect(() => {
     resizeComposerTextarea(composerRef.current)
@@ -88,20 +101,20 @@ export function ConversationView({
     <section className="workspace-conversation" aria-label="Conversation">
       <div
         ref={streamViewportRef}
-        className="workspace-conversation__stream"
+        className="workspace-conversation__stream workspace-themed-scrollbar"
         aria-live="polite"
         onScroll={updateScrollPreference}
       >
         {loading && <div className="workspace-history-state" role="status">Loading conversation…</div>}
         {!loading && error && <div className="workspace-history-state workspace-history-state--error" role="alert">{error}</div>}
-        {!loading && turns.length === 0 && (
+        {!loading && turns.length === 0 && !activityPresentation && (
           <div className="workspace-empty-state">
             <SynvoLogo large />
             <h2>How can Synvo help?</h2>
             <p>Ask a general question, continue a conversation, or describe what you want to accomplish in natural language.</p>
           </div>
         )}
-        {!loading && turns.length > 0 && (
+        {!loading && (turns.length > 0 || activityPresentation) && (
           <div className="workspace-turn-list">
             {turns.map((turn) => (
               <ConversationTurnView
@@ -110,21 +123,27 @@ export function ConversationView({
                 userAvatarUrl={userAvatarUrl}
                 active={activeRun?.assistantTurnId === turn.turnId}
                 activity={activeRun?.assistantTurnId === turn.turnId ? activityLabel(activeRun.phase) : null}
+                activityPresentation={activityTurnId === turn.turnId ? activityPresentation : null}
                 onRetry={() => onRetry(turn.turnId)}
+                onBranch={onBranch}
               />
             ))}
+            {activityPresentation && activityTurnId === null && (
+              <ConversationActivityPresentation>{activityPresentation}</ConversationActivityPresentation>
+            )}
           </div>
         )}
       </div>
 
       <form className="workspace-composer" onSubmit={submit} aria-label="Message composer">
+        {composerControls}
         <label className="sr-only" htmlFor="synvo-message">Message Synvo</label>
         <textarea
           ref={composerRef}
           id="synvo-message"
           value={composerValue}
-          disabled={activeRun !== null}
-          placeholder={activeRun ? 'Synvo is responding…' : 'Message Synvo…'}
+          disabled={activeRun !== null || composerDisabled}
+          placeholder={activeRun ? 'Synvo is responding…' : composerPlaceholder ?? 'Message Synvo…'}
           rows={2}
           onChange={(event) => onComposerChange(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -136,7 +155,7 @@ export function ConversationView({
               <StopIcon />
             </button>
           ) : (
-            <button type="submit" disabled={!composerValue.trim()} aria-label="Send message"><ArrowUpIcon /></button>
+            <button type="submit" disabled={composerDisabled || !composerValue.trim()} aria-label="Send message"><ArrowUpIcon /></button>
           )}
         </div>
       </form>
@@ -149,15 +168,22 @@ function ConversationTurnView({
   userAvatarUrl,
   active,
   activity,
+  activityPresentation,
   onRetry,
+  onBranch,
 }: {
   turn: ConversationTurn
   userAvatarUrl: string | null
   active: boolean
   activity: string | null
+  activityPresentation: ReactNode
   onRetry: () => void
+  onBranch?: () => void
 }) {
-  const assistantWaiting = turn.role === 'ASSISTANT' && !turn.content && (turn.status === 'PENDING' || active)
+  const assistantWaiting = turn.role === 'ASSISTANT'
+    && !turn.content
+    && !activityPresentation
+    && (turn.status === 'PENDING' || active)
   const showAssistantActions = turn.role === 'ASSISTANT' && turn.status === 'COMPLETED' && Boolean(turn.content)
   return (
     <article
@@ -174,15 +200,16 @@ function ConversationTurnView({
           <div className="workspace-typing" role="status" aria-label={activity ?? 'Synvo is thinking'}>
             <span /><span /><span />
           </div>
-        ) : (
+        ) : turn.content ? (
           <div className="workspace-turn__content">
             {turn.role === 'ASSISTANT' ? <AssistantMarkdown>{turn.content}</AssistantMarkdown> : turn.content}
           </div>
-        )}
-        {active && turn.content && activity && (
+        ) : null}
+        {activityPresentation}
+        {active && turn.content && activity && !activityPresentation && (
           <div className="workspace-turn__activity" role="status">{activity}</div>
         )}
-        {showAssistantActions && <AssistantTurnActions turn={turn} />}
+        {showAssistantActions && <AssistantTurnActions turn={turn} onBranch={onBranch} />}
         {turn.status === 'FAILED' && (
           <button className="workspace-retry-button" type="button" onClick={onRetry}>Retry</button>
         )}
@@ -191,7 +218,18 @@ function ConversationTurnView({
   )
 }
 
-function AssistantTurnActions({ turn }: { turn: ConversationTurn }) {
+function ConversationActivityPresentation({ children }: { children: ReactNode }) {
+  return (
+    <article className="workspace-turn" data-role="assistant" data-status="pending" aria-label="Synvo activity">
+      <div className="workspace-turn__identity" aria-hidden="true">
+        <ConversationAvatar role="ASSISTANT" userAvatarUrl={null} />
+      </div>
+      <div className="workspace-turn__body">{children}</div>
+    </article>
+  )
+}
+
+function AssistantTurnActions({ turn, onBranch }: { turn: ConversationTurn; onBranch?: () => void }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -228,9 +266,10 @@ function AssistantTurnActions({ turn }: { turn: ConversationTurn }) {
       </button>
       <button
         type="button"
-        aria-label="Branch in new chat — coming soon"
-        title="Branch in new chat — coming soon"
-        disabled
+        aria-label={onBranch ? 'Fork task from this result' : 'Branch in new chat — coming soon'}
+        title={onBranch ? 'Fork task from this result' : 'Branch in new chat — coming soon'}
+        disabled={!onBranch}
+        onClick={onBranch}
       >
         <BranchIcon />
       </button>
@@ -250,6 +289,7 @@ function activityLabel(phase: RunPhase) {
     case 'thinking': return 'Preparing a response…'
     case 'streaming': return 'Responding…'
     case 'tool_running': return 'Running an approved operation…'
+    case 'action_required': return 'Waiting for your approval in H5…'
     case 'reconnecting': return 'Reconnecting to the response…'
     case 'stopping': return 'Stopping…'
   }

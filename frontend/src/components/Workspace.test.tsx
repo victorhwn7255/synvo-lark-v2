@@ -73,6 +73,7 @@ describe('Workspace', () => {
     ]
     const detail: ConversationDetail = {
       ...recents[1],
+      activeRun: null,
       turns: [
         turn('user-2', 'USER', 'What did we decide?', 'COMPLETED'),
         turn('assistant-2', 'ASSISTANT', 'The persisted answer.', 'COMPLETED'),
@@ -113,7 +114,7 @@ describe('Workspace', () => {
     const remove = vi.fn().mockResolvedValue(undefined)
     const flow = conversationFlow({
       list: vi.fn().mockResolvedValue([recent]),
-      get: vi.fn().mockResolvedValue({ ...recent, turns: [] }),
+      get: vi.fn().mockResolvedValue({ ...recent, turns: [], activeRun: null }),
       remove,
     })
     renderWorkspace(flow.api)
@@ -184,6 +185,7 @@ describe('Workspace', () => {
       list: vi.fn().mockResolvedValue([recent]),
       get: vi.fn().mockResolvedValue({
         ...recent,
+        activeRun: null,
         turns: [turn('assistant-2', 'ASSISTANT', '1. **Keep the Markdown.**', 'COMPLETED')],
       }),
     })
@@ -254,6 +256,7 @@ describe('Workspace', () => {
       list: vi.fn().mockResolvedValue([recent]),
       get: vi.fn().mockResolvedValue({
         ...recent,
+        activeRun: null,
         turns: [
           turn('streaming', 'ASSISTANT', 'Still responding', 'STREAMING'),
           turn('failed', 'ASSISTANT', 'Could not complete', 'FAILED'),
@@ -449,6 +452,7 @@ describe('Workspace', () => {
       list: vi.fn().mockResolvedValue([recent]),
       get: vi.fn().mockResolvedValue({
         ...recent,
+        activeRun: null,
         turns: [turn('assistant-2', 'ASSISTANT', 'The persisted answer.', 'COMPLETED')],
       }),
     })
@@ -563,7 +567,7 @@ function streamEvent(
   delta: string | null,
   presentation: WorkflowPresentation | null = null,
 ): ConversationStreamEvent {
-  return { sequence, type, message, delta, presentation }
+  return { sequence, type, message, delta, presentation, action: null }
 }
 
 function turn(

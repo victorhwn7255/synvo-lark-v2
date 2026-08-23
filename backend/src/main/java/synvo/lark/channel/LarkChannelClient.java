@@ -2,6 +2,7 @@ package synvo.lark.channel;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import synvo.agent.AgentLifecycleEvent.ActionHandoff;
 
 public interface LarkChannelClient {
 
@@ -10,6 +11,9 @@ public interface LarkChannelClient {
 	void onSignal(Consumer<Signal> handler);
 
 	CompletableFuture<BotProfile> connect();
+
+	/** Replace the current transport, retain registered handlers, and connect the replacement. */
+	CompletableFuture<BotProfile> restart();
 
 	CompletableFuture<Void> disconnect();
 
@@ -28,6 +32,12 @@ public interface LarkChannelClient {
 		void append(String delta);
 
 		void setContent(String content);
+
+		default void showActionRequired(ActionHandoff handoff, String h5Url) {
+		}
+
+		default void clearActionRequired() {
+		}
 	}
 
 	record BotProfile(String openId, String displayName) {

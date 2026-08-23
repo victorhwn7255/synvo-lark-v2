@@ -14,9 +14,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import synvo.agent.SynvoAgentCore.PreparedConversation;
 import synvo.configuration.AgentRuntimeProperties;
+import synvo.workspaceagent.WorkspaceConversationAgent;
 
 @Component
 public final class ConversationRunCoordinator {
@@ -26,19 +28,30 @@ public final class ConversationRunCoordinator {
 	private final SynvoAgentCore agentCore;
 	private final AgentEventPublisher eventPublisher;
 	private final Duration responseTimeout;
+	private final WorkspaceConversationAgent workspaceAgent;
 	private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
 			Thread.ofPlatform().daemon().name("synvo-agent-timeout").factory());
 	private final Map<UUID, ActiveRun> activeByRun = new HashMap<>();
 	private final Map<String, ActiveRun> activeByRequest = new HashMap<>();
 
+	@Autowired
+	public ConversationRunCoordinator(
+			SynvoAgentCore agentCore,
+			AgentEventPublisher eventPublisher,
+			AgentRuntimeProperties properties,
+			WorkspaceConversationAgent workspaceAgent) {
+		this.agentCore = agentCore;
+		this.eventPublisher = eventPublisher;
+		this.responseTimeout = properties.responseTimeout();
+		this.workspaceAgent = workspaceAgent;
+	}
+
 	public ConversationRunCoordinator(
 			SynvoAgentCore agentCore,
 			AgentEventPublisher eventPublisher,
 			AgentRuntimeProperties properties) {
-		this.agentCore = agentCore;
-		this.eventPublisher = eventPublisher;
-		this.responseTimeout = properties.responseTimeout();
+		this(agentCore, eventPublisher, properties, null);
 	}
 
 	public synchronized Submission submit(ConversationRequest request) {
@@ -68,34 +81,74 @@ public final class ConversationRunCoordinator {
 	public ConversationResult run(
 			ConversationRequest request,
 			Consumer<AgentLifecycleEvent> observer) {
+		return run(request, ignored -> { }, observer);
+	}
+
+	/**
+	 * Runs synchronously and publishes the application run identity after it is
+	 * activated but before execution begins, allowing a surface to persist its own
+	 * conversation binding without owning active-run state.
+	 */
+	public ConversationResult run(
+			ConversationRequest request,
+			Consumer<Submission> onSubmission,
+			Consumer<AgentLifecycleEvent> observer) {
 		Objects.requireNonNull(request, "request");
+		Objects.requireNonNull(onSubmission, "onSubmission");
 		Objects.requireNonNull(observer, "observer");
 		ActiveRun active;
+		ConversationResult replay;
 		synchronized (this) {
 			if (activeByRequest.containsKey(request.requestId())) {
 				throw new ConversationAlreadyRunningException();
 			}
 			PreparedConversation prepared = agentCore.prepare(request, observer);
 			if (prepared.replayed()) {
-				return prepared.replay();
+				replay = prepared.replay();
+				active = null;
 			}
-			active = activate(request, prepared);
+			else {
+				replay = null;
+				active = activate(request, prepared);
+			}
 		}
-		return execute(active, observer);
+		if (replay != null) {
+			onSubmission.accept(new Submission(
+					request.requestId(), replay.conversationId(), replay.runId(), null, null,
+					replay.intent(), replay.status().name(), true));
+			return replay;
+		}
+		return execute(active, onSubmission, observer);
 	}
 
 	public synchronized boolean stop(UUID runId) {
 		ActiveRun active = activeByRun.get(runId);
-		return active != null && active.cancellation.cancel();
+		boolean cancelled = active != null && active.cancellation.cancel();
+		if (cancelled && workspaceAgent != null && workspaceAgent.enabled()) {
+			workspaceAgent.stopConversationRun(runId);
+		}
+		return cancelled;
 	}
 
 	private void execute(ActiveRun active) {
-		execute(active, event -> eventPublisher.publish(active.submission.runId(), event));
+		execute(
+				active,
+				ignored -> { },
+				event -> eventPublisher.publish(active.submission.runId(), event));
 	}
 
 	private ConversationResult execute(
 			ActiveRun active,
+			Consumer<Submission> onSubmission,
 			Consumer<AgentLifecycleEvent> observer) {
+		Consumer<Submission> guardedSubmission = submission -> {
+			try {
+				onSubmission.accept(submission);
+			}
+			catch (RuntimeException deliveryFailure) {
+				throw new LifecycleDeliveryException(deliveryFailure);
+			}
+		};
 		Consumer<AgentLifecycleEvent> guardedObserver = event -> {
 			try {
 				observer.accept(event);
@@ -105,6 +158,7 @@ public final class ConversationRunCoordinator {
 			}
 		};
 		try {
+			guardedSubmission.accept(active.submission);
 			return agentCore.execute(
 					active.prepared,
 					guardedObserver,
@@ -147,7 +201,12 @@ public final class ConversationRunCoordinator {
 		activeByRun.put(run.runId(), active);
 		activeByRequest.put(request.requestId(), active);
 		active.timeoutFuture = scheduler.schedule(
-				active.cancellation::timeout,
+				() -> {
+					if (active.cancellation.timeout()
+							&& workspaceAgent != null && workspaceAgent.enabled()) {
+						workspaceAgent.stopConversationRun(run.runId());
+					}
+				},
 				responseTimeout.toMillis(),
 				TimeUnit.MILLISECONDS);
 		return active;
@@ -165,7 +224,10 @@ public final class ConversationRunCoordinator {
 	void shutdown() {
 		synchronized (this) {
 			for (ActiveRun active : activeByRun.values()) {
-				active.cancellation.cancel();
+				if (active.cancellation.cancel()
+						&& workspaceAgent != null && workspaceAgent.enabled()) {
+					workspaceAgent.stopConversationRun(active.submission.runId());
+				}
 			}
 		}
 		executor.shutdown();

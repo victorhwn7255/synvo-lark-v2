@@ -48,6 +48,9 @@ export function ResearchIcon() { return <Icon><circle cx="11" cy="11" r="6.5" />
 export function MeetingIcon() { return <Icon><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h6" /></Icon> }
 export function ConversationIcon() { return <Icon><path d="M5 5h14v11H9l-4 3V5Z" /></Icon> }
 export function TrashIcon() { return <Icon><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></Icon> }
+export function PencilIcon() { return <Icon><path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2 4 20Z" /><path d="m14.5 7.1 2.8 2.8" /></Icon> }
+export function ArchiveIcon() { return <Icon><path d="M4 7h16v13H4V7Z" /><path d="M3 4h18v3H3V4ZM9 11h6" /></Icon> }
+export function PinIcon() { return <Icon><path d="m8 4 8 0-1 5 3 3H6l3-3-1-5ZM12 12v8" /></Icon> }
 export function SettingsIcon() { return <Icon><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.96 19.36a1.7 1.7 0 0 0-1.87.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3v-4h.04A1.7 1.7 0 0 0 4.6 8.92a1.7 1.7 0 0 0-.34-1.87L4.2 7l2.83-2.83.06.06a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.04V3h4v.04a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06L19.8 7l-.06.05a1.7 1.7 0 0 0-.34 1.87A1.7 1.7 0 0 0 20.96 10H21v4h-.04A1.7 1.7 0 0 0 19.4 15Z" /></Icon> }
 export function ArtifactIcon() { return <Icon><path d="M6 3h9l4 4v14H6V3Z" /><path d="M15 3v5h5M9 13h7M9 17h5" /></Icon> }
 export function CloseIcon() { return <Icon><path d="m7 7 10 10M17 7 7 17" /></Icon> }
