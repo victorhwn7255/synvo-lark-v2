@@ -1,19 +1,19 @@
 # Synvo AI Assistant
 
-Synvo is a single-user, Lark-native client for OpenAI Codex. The repository is
-intentionally one React H5 application, one Spring Boot modular monolith, one
-PostgreSQL database, and one private Python runner sidecar.
+Synvo AI Assistant is a single-user, Lark-native client for OpenAI Codex. The
+repository is intentionally one React H5 application, one Spring Boot modular
+monolith, one PostgreSQL database, and one private Python runner sidecar.
 
 The current codebase includes the completed Phases 0 through 3. Phase 3,
-**Codex in Lark**, provides:
+**Codex in Lark**, was completed on 2026-08-24 and provides:
 
 ```text
-Lark Chat --\
-             +--> application conversation boundary --> workspace-agent facade
-React H5 ---/                 |         |                    |
-                              |         +--> PostgreSQL      +--> private runner
-                              |                                  +--> pinned Codex App Server
-                              +--> encrypted Lark-token boundary       +--> OpenAI-hosted inference
+Lark Chat (deferred) --\
+                        +--> application conversation boundary --> workspace-agent facade
+React H5 (supported) ---/                 |         |                    |
+                                         |         +--> PostgreSQL      +--> private runner
+                                         |                                  +--> pinned Codex App Server
+                                         +--> encrypted Lark-token boundary       +--> OpenAI-hosted inference
 ```
 
 H5 is the supported employee surface for the current Phase 3 rollout, with
@@ -27,6 +27,27 @@ execution behind a narrow Synvo contract. Enterprise Knowledge Research,
 Drive retrieval, citations, Meeting-to-Execution, and the first opinionated
 Synvo workplace workflow remain outside Phase 3.
 
+The completed H5 experience includes:
+
+- configured Finance, Products, and Sales workspaces with permanent per-task
+  workspace binding;
+- Read Only and Full Edit document/data tasks, deterministic artifact
+  validation, streaming results, and safe file-change summaries;
+- task creation, continuation, rename, pin, archive, delete, fork, retry,
+  review, cancellation, and restart recovery;
+- live agent-activity milestones, steering delivery and history, terminal
+  status, persistent task goals, and usage reporting;
+- configured Codex skills plus allowlisted read-only MCP tools and bounded MCP
+  elicitation in H5; and
+- one active top-level Codex turn system-wide with deterministic lifecycle,
+  authorization, idempotency, audit, and terminal outcomes.
+
+Routine work already inside the selected sandbox runs without approval clicks.
+Bounded workspace-relative file decisions and allowlisted MCP interactions use
+one-time H5 decisions. Credential access, other workspaces, unrestricted host
+access, network-enabling requests, opaque command elevation, and Full Access
+remain unavailable rather than being converted into broad approval prompts.
+
 ## Technology
 
 - Frontend: React 19, TypeScript, Vite, and Tailwind CSS
@@ -34,7 +55,7 @@ Synvo workplace workflow remain outside Phase 3.
 - Agent engine: exact `gpt-5.6-sol` through pinned `@openai/codex` /
   `codex-cli 0.148.0` App Server; the private runner uses direct stable stdio
   JSON-RPC and does not use the public Python SDK
-- Database: PostgreSQL 18 with Flyway migrations
+- Database: PostgreSQL 18 with committed Flyway migrations V1 through V6
 - Local runtime: Docker Compose
 
 The lightweight product requirements and architecture reference is
@@ -209,11 +230,10 @@ curl -fsS http://127.0.0.1:5173/api/status
 ```
 
 The runner is exposed only to the private Compose network. Agent commands have
-no network access; read-only tasks cannot modify the workspace, and
-workspace-write tasks can write only inside the configured mount. The base
-stack still contains the disabled Phase 2 Nemotron adapter until controlled
-Codex parity is verified, as required by the Phase 3 specification. Do not
-enable that legacy model path for Phase 3 verification.
+no network access; read-only tasks cannot modify the workspace, and Full Edit
+tasks can write only inside the configured mount. The legacy Phase 2
+Nemotron/Spring AI/NVIDIA code path remains present but disabled; it is not part
+of the supported Phase 3 runtime. Do not enable it for Codex verification.
 
 ## Temporary HTTPS access for H5
 
@@ -246,34 +266,50 @@ Do not save the tunnel URL or ngrok credentials in the repository. Stop ngrok
 with `Ctrl+C` after the H5 test; the ordinary Compose stack continues to work
 without it.
 
-## Controlled Phase 3 live verification
+## Phase 3 completion and verification
 
-With the enabled Codex overlay, developer-console settings, interactive Codex
-login, and local Lark secrets configured:
+Phase 3 is complete. Its redacted Completion Audit is recorded in
+[`docs/specs/phase-3-codex-in-lark.md`](docs/specs/phase-3-codex-in-lark.md).
+The final verification established:
 
-1. Confirm the runner reports exact App Server `0.148.0`, model
-   `gpt-5.6-sol`, authenticated account state, and no model reroute.
-2. Complete one H5 read-only document/data analysis and one H5
-   workspace-write document/data task. Routine work inside the selected
-   sandbox should require no approval. Confirm deterministic artifact
-   validation and a bounded workspace-relative change and validation summary;
-   exercise a one-time H5 decision separately through a bounded file or the
-   harmless allowlisted MCP fixture. Coding and software-test tasks are
-   deferred.
-3. Exercise steering, stop, retry, task resume, one configured skill, the
-   harmless allowlisted MCP fixture, goals, and one supported review.
-4. Start one task from Victor's native Lark DM, open its safe H5 interaction
-   handoff, resolve it in H5, and receive the final result in the originating
-   evolving Chat response. Send the exact `/stop` command during a separate
-   active Chat task and confirm that it cancels without starting another turn.
-   Group messages and messages from any other user must still be ignored.
-5. Restart the runner and backend and confirm terminal recovery, persisted
-   task mappings, and browser refresh reconnect behavior.
-6. Perform only the count/redaction audit defined by the Phase 3 specification;
-   never print logs containing message bodies, prompts, credentials, raw output,
-   diffs, or enterprise content.
+- 61 runner tests passed;
+- 237 backend tests passed through both `./mvnw test` and `./mvnw package`;
+- 104 frontend tests, typecheck, lint, and production build passed;
+- empty-database and populated-V4 upgrades both applied V1 through V6;
+- base and Codex-enabled Compose configurations validated, all application
+  images rebuilt, and PostgreSQL, runner, backend, and frontend became healthy;
+- runtime discovery reported App Server `0.148.0`, exact model `gpt-5.6-sol`,
+  14 enabled stable features, and 45 below-stable features disabled; and
+- the count-only security audit found no tracked environment secrets,
+  credential-shaped production values, forbidden raw audit fields, sensitive
+  browser persistence, or overlap between the credential and workspace mounts.
 
-The live test is manual and must never run in the ordinary automated suite.
+Controlled H5 verification covered Read Only and Full Edit document/data
+tasks, deterministic CSV and Markdown validation, skills, read-only MCP,
+elicitation-backed MCP approval, goals, steering and steering history, stop,
+retry, task/thread management, restart recovery, and terminal presentation.
+The final Full Edit check created exactly one report, preserved ten existing
+files, reconciled every calculation within USD 0.01, and verified source hashes
+and workspace inventory.
+
+Native Lark Chat remains implemented but is not a supported employee surface
+for this rollout. Victor explicitly waived the remaining native Chat and
+Lark-to-H5 tests for Phase 3 closure. React H5 is the supported application;
+native Chat must receive a separately approved test plan and direct live
+verification before it is promoted again.
+
+Live H5 checks are manual and must never run in the ordinary automated suite.
+When repeating them, never print logs containing message bodies, prompts,
+credentials, raw output, diffs, configured paths, or enterprise content.
+
+## Next phase
+
+Phase 4 will add one opinionated, bounded Synvo workplace workflow on top of
+the completed Codex-in-Lark foundation. There is no mandatory Phase 3.5.
+Permissioned elevated execution, temporary additional-folder grants, or
+authenticated external operations should be introduced only if the selected
+Phase 4 workflow demonstrates a concrete need and receives an approved
+specification and acceptance tests.
 
 ## Environment configuration
 
