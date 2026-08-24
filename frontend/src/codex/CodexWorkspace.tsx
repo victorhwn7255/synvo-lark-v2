@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BotConnection } from '../api/lark'
 import type { ConversationApi } from '../api/conversations'
-import type { CodexApi } from '../api/codex'
+import type { CodexApi, CodexOperationStatus, CodexTerminalStatus } from '../api/codex'
 import { ConversationView } from '../conversation/ConversationView'
 import { useConversation } from '../conversation/useConversation'
 import { SettingsView } from '../workspace/SettingsView'
 import { ArrowLeftIcon, ArtifactIcon, FolderIcon } from '../workspace/visuals'
 import { CodexComposerControls } from './CodexComposerControls'
-import { CodexActivityTimeline } from './CodexActivityTimeline'
+import { CodexActivityTimeline, type CodexSteeringMilestoneStatus } from './CodexActivityTimeline'
 import { CodexInteractionDrawer } from './CodexInteractionDrawer'
 import { CodexSidebar } from './CodexSidebar'
-import { CodexTaskPanel } from './CodexTaskPanel'
+import { CodexTaskPanel, type CodexSteeringUpdate } from './CodexTaskPanel'
 import { CodexTaskSetup } from './CodexTaskSetup'
 import { useCodexWorkspace } from './useCodexWorkspace'
 
@@ -43,7 +43,9 @@ export function CodexWorkspace({
   const [taskPanelOpen, setTaskPanelOpen] = useState(false)
   const [reasoningEffort, setReasoningEffort] = useState('')
   const [skillName, setSkillName] = useState('')
+  const [steeringUpdatesByTask, setSteeringUpdatesByTask] = useState<Record<string, CodexSteeringUpdate[]>>({})
   const newTaskRef = useRef<HTMLButtonElement>(null)
+  const steeringUpdateSequenceRef = useRef(0)
   const refreshedTerminalRef = useRef<string | null>(null)
   const taskState = useCodexWorkspace({ api: codexApi })
   const conversation = useConversation({ api: conversationApi })
@@ -55,6 +57,7 @@ export function CodexWorkspace({
   const activeOperation = taskState.taskDetail?.activeOperation ?? null
   const latestOperation = taskState.taskDetail?.latestOperation ?? null
   const activeRun = conversation.activeRun
+  const steeringUpdates = task ? steeringUpdatesByTask[task.taskId] ?? [] : []
 
   useEffect(() => {
     const efforts = taskState.status?.reasoningEfforts ?? []
@@ -95,6 +98,21 @@ export function CodexWorkspace({
     refreshedTerminalRef.current = `${task?.taskId}:${terminalActivity.sequence}`
     void refreshSelectedTask()
   }, [refreshSelectedTask, task?.taskId, terminalActivity])
+
+  const terminalSteeringStatus = timelineSteeringStatus(
+    activeOperation ?? latestOperation,
+    terminalActivity?.terminalStatus ?? null,
+  )
+  useEffect(() => {
+    const operation = activeOperation ?? latestOperation
+    if (!task || !operation || terminalSteeringStatus === 'delivered') return
+    setSteeringUpdatesByTask((current) => updateSteeringStatuses(
+      current,
+      task.taskId,
+      operation.operationId,
+      terminalSteeringStatus,
+    ))
+  }, [activeOperation, latestOperation, task, terminalSteeringStatus])
 
   useEffect(() => {
     const handoff = conversation.interactionHandoff
@@ -139,7 +157,9 @@ export function CodexWorkspace({
   }
 
   const deleteTask = async () => {
+    const taskId = task?.taskId ?? null
     await taskState.deleteTask()
+    if (taskId) setSteeringUpdatesByTask((current) => withoutSteeringHistory(current, taskId))
     setTaskPanelOpen(false)
     await openConversation(null)
     queueMicrotask(() => newTaskRef.current?.focus())
@@ -157,6 +177,7 @@ export function CodexWorkspace({
   const deleteSidebarTask = async (taskId: string) => {
     const selected = taskState.selectedTaskId === taskId
     await taskState.deleteTaskById(taskId)
+    setSteeringUpdatesByTask((current) => withoutSteeringHistory(current, taskId))
     if (selected) {
       setTaskPanelOpen(false)
       await openConversation(null)
@@ -167,13 +188,19 @@ export function CodexWorkspace({
   const assistantReady = botConnection === 'connected' && taskState.status?.state === 'READY'
   const assistantAvailability = assistantReady
     ? 'Codex and the native Lark assistant are ready.'
-    : 'One or more Codex in Lark services need attention.'
+    : 'One or more Synvo AI Assistant services need attention.'
   const connectionNotice = connectionNotices[botConnection]
   const title = view === 'settings' ? 'Settings' : task?.title ?? 'New Codex task'
   const taskBusy = activeRun !== null || activeOperation !== null || taskState.submitting !== null
   const composerDisabled = !task || taskState.status?.state !== 'READY'
   const timelineOperation = activeOperation ?? (activeRun ? null : latestOperation)
   const timelineActivity = activeRun && !activeOperation ? [] : taskState.activity
+  const operationSteeringUpdates = timelineOperation
+    ? steeringUpdates.filter(({ operationId }) => operationId === timelineOperation.operationId)
+    : []
+  const steeringStatus = operationSteeringUpdates.length > 0
+    ? presentedSteeringStatus(operationSteeringUpdates)
+    : null
   const activityPresentation = activeRun || timelineOperation ? (
     <CodexActivityTimeline
       active={activeRun !== null || activeOperation !== null}
@@ -181,11 +208,12 @@ export function CodexWorkspace({
       reconnecting={taskState.reconnecting}
       interaction={taskState.interaction}
       activity={timelineActivity}
+      steeringStatus={steeringStatus}
     />
   ) : null
 
   return (
-    <main className="workspace-shell" data-sidebar-collapsed={sidebarCollapsed} aria-label="Codex in Lark workspace">
+    <main className="workspace-shell" data-sidebar-collapsed={sidebarCollapsed} aria-label="Synvo AI Assistant workspace">
       <CodexSidebar
         collapsed={sidebarCollapsed}
         settingsActive={view === 'settings'}
@@ -247,7 +275,7 @@ export function CodexWorkspace({
           {view === 'settings' ? (
             <SettingsView botConnection={botConnection} busy={busy} onSignOut={onSignOut} />
           ) : taskState.loading ? (
-            <div className="workspace-history-state" role="status">Preparing Codex in Lark…</div>
+            <div className="workspace-history-state" role="status">Preparing Synvo AI Assistant…</div>
           ) : !task ? (
             <CodexTaskSetup
               status={taskState.status}
@@ -296,6 +324,7 @@ export function CodexWorkspace({
               activity={taskState.activity}
               inventory={taskState.inventory}
               goal={taskState.goal}
+              steeringUpdates={steeringUpdates}
               reconnecting={taskState.reconnecting}
               submitting={taskState.submitting}
               error={taskState.error}
@@ -306,7 +335,36 @@ export function CodexWorkspace({
               onModeChange={async (mode) => { await taskState.changeMode(mode) }}
               onFork={async (forkTitle) => { await taskState.forkTask(forkTitle) }}
               onDelete={deleteTask}
-              onSteer={taskState.steer}
+              onSteer={async (content) => {
+                const taskId = task?.taskId ?? null
+                const operationId = activeOperation?.operationId ?? null
+                const updateId = operationId
+                  ? `${operationId}:${++steeringUpdateSequenceRef.current}`
+                  : `unavailable:${++steeringUpdateSequenceRef.current}`
+                try {
+                  await taskState.steer(content)
+                  if (taskId && operationId) {
+                    setSteeringUpdatesByTask((current) => appendSteeringUpdate(current, taskId, {
+                      id: updateId,
+                      operationId,
+                      content,
+                      deliveredAt: new Date().toISOString(),
+                      status: 'delivered',
+                    }))
+                  }
+                } catch (failure) {
+                  if (taskId && operationId) {
+                    setSteeringUpdatesByTask((current) => appendSteeringUpdate(current, taskId, {
+                      id: updateId,
+                      operationId,
+                      content,
+                      deliveredAt: new Date().toISOString(),
+                      status: 'failed',
+                    }))
+                  }
+                  throw failure
+                }
+              }}
               onStopOperation={activeRun ? conversation.stopRun : taskState.stopOperation}
               onUpdateGoal={taskState.updateGoal}
               onClearGoal={taskState.clearGoal}
@@ -334,4 +392,60 @@ function initialSidebarCollapsed() {
 
 function collapseSidebarForNarrowViewport(setCollapsed: (collapsed: boolean) => void) {
   if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches) setCollapsed(true)
+}
+
+function steeringMilestoneStatus(
+  operationStatus: CodexOperationStatus,
+  terminalStatus: CodexTerminalStatus | null,
+): CodexSteeringMilestoneStatus {
+  if (terminalStatus === 'COMPLETED' || operationStatus === 'COMPLETED') return 'completed'
+  if (terminalStatus === 'STOPPED' || operationStatus === 'STOPPED') return 'stopped'
+  if (terminalStatus !== null || operationStatus === 'FAILED') return 'failed'
+  return 'delivered'
+}
+
+function timelineSteeringStatus(
+  operation: { status: CodexOperationStatus } | null,
+  terminalStatus: CodexTerminalStatus | null,
+): CodexSteeringUpdate['status'] {
+  if (!operation) return 'delivered'
+  return steeringMilestoneStatus(operation.status, terminalStatus)
+}
+
+function appendSteeringUpdate(
+  updatesByTask: Record<string, CodexSteeringUpdate[]>,
+  taskId: string,
+  update: CodexSteeringUpdate,
+) {
+  return { ...updatesByTask, [taskId]: [...(updatesByTask[taskId] ?? []), update] }
+}
+
+function updateSteeringStatuses(
+  updatesByTask: Record<string, CodexSteeringUpdate[]>,
+  taskId: string,
+  operationId: string,
+  status: CodexSteeringUpdate['status'],
+) {
+  const updates = updatesByTask[taskId]
+  if (!updates?.some((update) => update.operationId === operationId && update.status === 'delivered')) {
+    return updatesByTask
+  }
+  return {
+    ...updatesByTask,
+    [taskId]: updates.map((update) => update.operationId === operationId && update.status === 'delivered'
+      ? { ...update, status }
+      : update),
+  }
+}
+
+function withoutSteeringHistory(updatesByTask: Record<string, CodexSteeringUpdate[]>, taskId: string) {
+  const { [taskId]: _removed, ...remaining } = updatesByTask
+  return remaining
+}
+
+function presentedSteeringStatus(updates: CodexSteeringUpdate[]): CodexSteeringMilestoneStatus {
+  if (updates.some(({ status }) => status === 'delivered')) return 'delivered'
+  if (updates.some(({ status }) => status === 'completed')) return 'completed'
+  if (updates.some(({ status }) => status === 'failed')) return 'failed'
+  return 'stopped'
 }

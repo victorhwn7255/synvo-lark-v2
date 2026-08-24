@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import synvo.agent.AgentLifecycleEvent.ActionHandoff;
+import synvo.lark.channel.LarkChannelClient.TaskHandoff;
 
 final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 
@@ -17,13 +18,15 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 	private final StringBuilder content = new StringBuilder();
 	private ActionHandoff actionHandoff;
 	private String actionUrl;
+	private TaskHandoff taskHandoff;
+	private String taskUrl;
 
 	SynvoLarkStreamCard(CardStreamController controller) {
 		this.controller = controller;
 	}
 
 	static Map<String, Object> initialCard() {
-		return cardFor("", null, null);
+		return cardFor("", null, null, null, null);
 	}
 
 	@Override
@@ -32,7 +35,8 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 			return;
 		}
 		content.append(delta);
-		controller.update(cardFor(content.toString(), actionHandoff, actionUrl));
+		controller.update(cardFor(
+				content.toString(), actionHandoff, actionUrl, taskHandoff, taskUrl));
 	}
 
 	@Override
@@ -41,14 +45,16 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 		if (replacement != null) {
 			content.append(replacement);
 		}
-		controller.update(cardFor(content.toString(), actionHandoff, actionUrl));
+		controller.update(cardFor(
+				content.toString(), actionHandoff, actionUrl, taskHandoff, taskUrl));
 	}
 
 	@Override
 	public void showActionRequired(ActionHandoff handoff, String h5Url) {
 		actionHandoff = handoff;
 		actionUrl = h5Url;
-		controller.update(cardFor(content.toString(), actionHandoff, actionUrl));
+		controller.update(cardFor(
+				content.toString(), actionHandoff, actionUrl, taskHandoff, taskUrl));
 	}
 
 	@Override
@@ -58,16 +64,29 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 		}
 		actionHandoff = null;
 		actionUrl = null;
-		controller.update(cardFor(content.toString(), null, null));
+		controller.update(cardFor(content.toString(), null, null, taskHandoff, taskUrl));
+	}
+
+	@Override
+	public void showTaskHandoff(TaskHandoff handoff, String h5Url) {
+		taskHandoff = handoff;
+		taskUrl = h5Url;
+		controller.update(cardFor(
+				content.toString(), actionHandoff, actionUrl, taskHandoff, taskUrl));
 	}
 
 	private static Map<String, Object> cardFor(
 			String answer,
 			ActionHandoff handoff,
-			String h5Url) {
+			String h5Url,
+			TaskHandoff taskHandoff,
+			String taskUrl) {
 		String visibleContent = answer == null || answer.isBlank() ? WAITING_TEXT : answer;
 		if (handoff != null) {
 			visibleContent = visibleContent + "\n\n" + handoffContent(handoff, h5Url);
+		}
+		else if (taskHandoff != null) {
+			visibleContent = visibleContent + "\n\n" + taskHandoffContent(taskHandoff, taskUrl);
 		}
 
 		Map<String, Object> markdown = new LinkedHashMap<>();
@@ -89,6 +108,20 @@ final class SynvoLarkStreamCard implements LarkChannelClient.StreamWriter {
 		card.put("config", config);
 		card.put("body", body);
 		return card;
+	}
+
+	private static String taskHandoffContent(TaskHandoff handoff, String h5Url) {
+		StringBuilder value = new StringBuilder()
+				.append("**Continue this task in H5**\n")
+				.append("- Workspace: ").append(markdownText(handoff.workspaceName())).append("\n")
+				.append("- Access: ").append(markdownText(handoff.accessMode())).append("\n\n");
+		if (h5Url == null || h5Url.isBlank()) {
+			return value.append("Open Synvo AI Assistant in H5 to continue this task.").toString();
+		}
+		return value.append("[Open this task in H5](")
+				.append(h5Url)
+				.append(")")
+				.toString();
 	}
 
 	private static String handoffContent(ActionHandoff handoff, String h5Url) {

@@ -117,14 +117,7 @@ def handle_request(message: dict[str, Any]) -> None:
                         "message": "Create the fixed harmless verification marker?",
                         "requestedSchema": {
                             "type": "object",
-                            "properties": {
-                                "confirm": {
-                                    "type": "boolean",
-                                    "title": "Confirm",
-                                    "default": True,
-                                }
-                            },
-                            "required": ["confirm"],
+                            "properties": {},
                         },
                     },
                 }
@@ -147,10 +140,9 @@ def handle_response(message: dict[str, Any]) -> None:
     if message.get("id") != ELICITATION_ID or pending_tool_call is None:
         return
     result = message.get("result") or {}
-    content = result.get("content") or {}
     request_id = pending_tool_call
     pending_tool_call = None
-    if result.get("action") == "accept" and content.get("confirm") is True:
+    if result.get("action") == "accept":
         try:
             marker = fixture_root() / MARKER_NAME
             marker.write_text("fixture-ok\n", encoding="utf-8")

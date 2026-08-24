@@ -6,7 +6,9 @@ import type {
   CodexTerminalStatus,
 } from '../api/codex'
 
-type StepStatus = 'completed' | 'current' | 'waiting' | 'failed' | 'stopped'
+export type CodexSteeringMilestoneStatus = 'delivered' | 'completed' | 'failed' | 'stopped'
+
+type StepStatus = 'completed' | 'current' | 'steering' | 'waiting' | 'failed' | 'stopped'
 
 interface ActivityStep {
   id: string
@@ -40,16 +42,18 @@ export function CodexActivityTimeline({
   reconnecting,
   interaction,
   activity,
+  steeringStatus,
 }: {
   active: boolean
   operationStatus: CodexOperationStatus | null
   reconnecting: boolean
   interaction: CodexInteraction | null
   activity: CodexActivity[]
+  steeringStatus?: CodexSteeringMilestoneStatus | null
 }) {
   const steps = useMemo(
-    () => projectActivity(activity, interaction, active, operationStatus),
-    [active, activity, interaction, operationStatus],
+    () => projectActivity(activity, interaction, active, operationStatus, steeringStatus ?? null),
+    [active, activity, interaction, operationStatus, steeringStatus],
   )
   const terminalStatus = activity.findLast(({ terminalStatus }) => terminalStatus !== null)?.terminalStatus ?? null
   const terminal = terminalStatus !== null || isTerminalOperation(operationStatus)
@@ -92,8 +96,9 @@ export function CodexActivityTimeline({
               {steps.map((step) => (
                 <li
                   key={step.id}
+                  data-step={step.id}
                   data-status={step.status}
-                  aria-current={step.status === 'current' || step.status === 'waiting' ? 'step' : undefined}
+                  aria-current={step.status === 'current' || step.status === 'steering' || step.status === 'waiting' ? 'step' : undefined}
                 >
                   <span className="codex-live-activity__marker" aria-hidden="true" />
                   <div>
@@ -122,6 +127,7 @@ function projectActivity(
   interaction: CodexInteraction | null,
   active: boolean,
   operationStatus: CodexOperationStatus | null,
+  steeringStatus: CodexSteeringMilestoneStatus | null,
 ) {
   const ordered = [...activity].sort((left, right) => left.sequence - right.sequence)
   let startedAt: number | null = null
@@ -309,6 +315,16 @@ function projectActivity(
       status: 'completed',
     })
   }
+  if (steeringStatus) {
+    projected.push({
+      id: 'steering-update',
+      sequence: Number.MAX_SAFE_INTEGER - 2,
+      lastSequence: Number.MAX_SAFE_INTEGER - 2,
+      title: 'Instructions updated',
+      detail: 'Your steering update was delivered to Codex.',
+      status: steeringStepStatus(steeringStatus),
+    })
+  }
 
   projected.sort((left, right) => left.sequence - right.sequence)
   if (active && !interaction && !terminal) {
@@ -348,6 +364,13 @@ function projectActivity(
   return projected
     .sort((left, right) => left.sequence - right.sequence)
     .map(({ sequence: _sequence, lastSequence: _lastSequence, open: _open, ...step }) => step)
+}
+
+function steeringStepStatus(status: CodexSteeringMilestoneStatus): StepStatus {
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  if (status === 'stopped') return 'stopped'
+  return 'steering'
 }
 
 function workspaceSummary(workspace: WorkspaceAggregate) {

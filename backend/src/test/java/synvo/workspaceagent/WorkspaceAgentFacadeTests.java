@@ -27,7 +27,6 @@ import synvo.workspaceagent.WorkspaceAgentEngine.Goal;
 import synvo.workspaceagent.WorkspaceAgentEngine.GoalCommand;
 import synvo.workspaceagent.WorkspaceAgentEngine.RunMode;
 import synvo.workspaceagent.WorkspaceAgentEngine.TerminalStatus;
-import synvo.workspaceagent.WorkspaceAgentEngine.TurnInput;
 import synvo.workspaceagent.WorkspaceAgentFacade.ActivityView;
 import synvo.workspaceagent.WorkspaceAgentFacade.ConversationCommand;
 import synvo.workspaceagent.WorkspaceAgentFacade.ConversationObserver;
@@ -50,8 +49,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -122,6 +119,16 @@ class WorkspaceAgentFacadeTests {
 		when(repository.hasTerminalTurn(taskId)).thenReturn(true);
 		when(repository.startOperation(task, runId, "request-1", OperationType.TURN))
 				.thenReturn(operation);
+	}
+
+	@Test
+	void conversationTaskHandoffExposesOnlyOwnedTaskIdentityWorkspaceNameAndMode() {
+		var handoff = facade.conversationTask("ou-victor", conversationId).orElseThrow();
+
+		assertEquals(taskId, handoff.taskId());
+		assertEquals("Pilot workspace", handoff.workspaceName());
+		assertEquals(RunMode.READ_ONLY, handoff.mode());
+		assertFalse(handoff.toString().contains("/workspaces/pilot"));
 	}
 
 	@Test

@@ -20,7 +20,6 @@ import synvo.agent.model.ModelGateway.ModelRequest;
 import synvo.agent.model.ModelGateway.ModelResponse;
 import synvo.agent.model.ModelGatewayException;
 import synvo.workspaceagent.WorkspaceAgentEngine.ActivityKind;
-import synvo.workspaceagent.WorkspaceAgentEngine.TerminalStatus;
 import synvo.workspaceagent.WorkspaceAgentException;
 import synvo.workspaceagent.WorkspaceAgentFacade.ActivityView;
 import synvo.workspaceagent.WorkspaceAgentFacade.ConversationCommand;

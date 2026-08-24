@@ -1,5 +1,8 @@
 package synvo.lark.channel;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -22,6 +25,9 @@ import synvo.agent.ConversationRunCoordinator;
 import synvo.configuration.LarkProperties;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
+import synvo.workspaceagent.WorkspaceAgentEngine.RunMode;
+import synvo.workspaceagent.WorkspaceConversationAgent;
+import synvo.workspaceagent.WorkspaceConversationAgent.ConversationTaskHandoff;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -38,6 +44,7 @@ class LarkDirectMessageHandlerTests {
 	private LarkChannelClient channelClient;
 	private ConversationRunCoordinator conversations;
 	private ConversationQueries conversationQueries;
+	private WorkspaceConversationAgent workspaceConversations;
 	private LarkDirectMessageHandler handler;
 
 	@BeforeEach
@@ -47,10 +54,57 @@ class LarkDirectMessageHandlerTests {
 		channelClient = mock(LarkChannelClient.class);
 		conversations = mock(ConversationRunCoordinator.class);
 		conversationQueries = mock(ConversationQueries.class);
+		workspaceConversations = mock(WorkspaceConversationAgent.class);
 		handler = new LarkDirectMessageHandler(
 				properties(), repository, conversationBindings, channelClient,
-				conversations, conversationQueries);
+				conversations, conversationQueries, workspaceConversations);
 		handler.setBotOpenId("ou-bot");
+	}
+
+	@Test
+	void completedNativeTaskShowsOneOwningH5ContinuationWithoutInventingAnInteraction() {
+		InboundLarkMessage message = message(
+				"m-task-handoff", "p2p", "ou-victor", "text", "Create one report");
+		UUID conversationId = UUID.randomUUID();
+		UUID runId = UUID.randomUUID();
+		UUID taskId = UUID.randomUUID();
+		FakeStreamWriter writer = new FakeStreamWriter();
+		when(repository.tryClaim(eq("m-task-handoff"), eq("ou-victor"), eq("p2p"), any()))
+				.thenReturn(true);
+		when(conversationBindings.findConversationId("chat-1", "ou-victor"))
+				.thenReturn(Optional.empty());
+		when(channelClient.stream(eq(message), any())).thenAnswer(invocation -> {
+			LarkChannelClient.StreamProducer producer = invocation.getArgument(1);
+			producer.produce(writer);
+			return CompletableFuture.completedFuture("reply-task-handoff");
+		});
+		when(conversations.run(any(), any(), any())).thenAnswer(invocation -> {
+			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(2);
+			listener.accept(AgentLifecycleEvent.contentDelta(
+					1, "No file was changed. Open this task in H5 and select Full Edit."));
+			listener.accept(new AgentLifecycleEvent(2, AgentLifecycleEvent.State.COMPLETED, null));
+			return result(
+					conversationId, runId, ConversationResult.Status.COMPLETED,
+					"No file was changed. Open this task in H5 and select Full Edit.");
+		});
+		when(workspaceConversations.conversationTask("ou-victor", conversationId))
+				.thenReturn(Optional.of(new ConversationTaskHandoff(
+						taskId, "Products", RunMode.READ_ONLY)));
+
+		handler.handle(message);
+
+		assertEquals("Products", writer.shownTask.workspaceName());
+		assertEquals("Read Only", writer.shownTask.accessMode());
+		org.junit.jupiter.api.Assertions.assertTrue(
+				writer.shownTaskUrl.startsWith(
+						"https://applink.larksuite.com/client/web_app/open?"));
+		assertEquals("cli-test", appLinkParameter(writer.shownTaskUrl, "appId"));
+		assertEquals("appCenter", appLinkParameter(writer.shownTaskUrl, "mode"));
+		assertEquals("true", appLinkParameter(writer.shownTaskUrl, "reload"));
+		assertEquals("/h5", appLinkParameter(writer.shownTaskUrl, "path"));
+		assertEquals(taskId.toString(), appLinkParameter(writer.shownTaskUrl, "codexTask"));
+		assertEquals(null, appLinkParameter(writer.shownTaskUrl, "codexInteraction"));
+		assertEquals(null, writer.shownAction);
 	}
 
 	@Test
@@ -68,7 +122,6 @@ class LarkDirectMessageHandlerTests {
 			return CompletableFuture.completedFuture("reply-1");
 		});
 		when(conversations.run(any(), any(), any())).thenAnswer(invocation -> {
-			@SuppressWarnings("unchecked")
 			Consumer<ConversationRunCoordinator.Submission> onSubmission =
 					invocation.getArgument(1);
 			Consumer<AgentLifecycleEvent> listener = invocation.getArgument(2);
@@ -157,11 +210,15 @@ class LarkDirectMessageHandlerTests {
 		assertEquals(taskId, writer.shownAction.taskId());
 		assertEquals(interactionId, writer.shownAction.interactionId());
 		org.junit.jupiter.api.Assertions.assertTrue(
-				writer.shownUrl.startsWith("https://synvo.example/h5?"));
-		org.junit.jupiter.api.Assertions.assertTrue(
-				writer.shownUrl.contains("codexTask=" + taskId));
-		org.junit.jupiter.api.Assertions.assertTrue(
-				writer.shownUrl.contains("codexInteraction=" + interactionId));
+				writer.shownUrl.startsWith(
+						"https://applink.larksuite.com/client/web_app/open?"));
+		assertEquals("cli-test", appLinkParameter(writer.shownUrl, "appId"));
+		assertEquals("appCenter", appLinkParameter(writer.shownUrl, "mode"));
+		assertEquals("true", appLinkParameter(writer.shownUrl, "reload"));
+		assertEquals("/h5", appLinkParameter(writer.shownUrl, "path"));
+		assertEquals(taskId.toString(), appLinkParameter(writer.shownUrl, "codexTask"));
+		assertEquals(
+				interactionId.toString(), appLinkParameter(writer.shownUrl, "codexInteraction"));
 		assertEquals("Change completed.", writer.content.toString());
 		org.junit.jupiter.api.Assertions.assertTrue(writer.clearCount > 0);
 	}
@@ -313,6 +370,18 @@ class LarkDirectMessageHandlerTests {
 				null, null, null, Instant.now());
 	}
 
+	private static String appLinkParameter(String appLink, String name) {
+		String rawQuery = URI.create(appLink).getRawQuery();
+		for (String parameter : rawQuery.split("&")) {
+			int separator = parameter.indexOf('=');
+			if (separator > 0 && name.equals(parameter.substring(0, separator))) {
+				return URLDecoder.decode(
+						parameter.substring(separator + 1), StandardCharsets.UTF_8);
+			}
+		}
+		return null;
+	}
+
 	private static LarkProperties properties() {
 		return new LarkProperties(
 				true,
@@ -332,6 +401,8 @@ class LarkDirectMessageHandlerTests {
 		private ActionHandoff shownAction;
 		private String shownUrl;
 		private int clearCount;
+		private LarkChannelClient.TaskHandoff shownTask;
+		private String shownTaskUrl;
 
 		@Override
 		public void append(String delta) {
@@ -353,6 +424,12 @@ class LarkDirectMessageHandlerTests {
 		@Override
 		public void clearActionRequired() {
 			clearCount++;
+		}
+
+		@Override
+		public void showTaskHandoff(LarkChannelClient.TaskHandoff handoff, String h5Url) {
+			shownTask = handoff;
+			shownTaskUrl = h5Url;
 		}
 	}
 }

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -12,6 +13,7 @@ import type {
   CodexGoalCommand,
   CodexGoalStatus,
   CodexInventory,
+  CodexOperation,
   CodexReviewKind,
   CodexRunMode,
   CodexStatus,
@@ -24,12 +26,21 @@ const MIN_PANEL_WIDTH = 384
 const MAX_PANEL_WIDTH = 640
 const KEYBOARD_RESIZE_STEP = 24
 
+export interface CodexSteeringUpdate {
+  id: string
+  operationId: string
+  content: string
+  deliveredAt: string
+  status: 'delivered' | 'completed' | 'failed' | 'stopped'
+}
+
 export function CodexTaskPanel({
   status,
   taskDetail,
   activity,
   inventory,
   goal,
+  steeringUpdates,
   reconnecting,
   submitting,
   error,
@@ -51,6 +62,7 @@ export function CodexTaskPanel({
   activity: CodexActivity[]
   inventory: CodexInventory
   goal: CodexGoal | null
+  steeringUpdates: CodexSteeringUpdate[]
   reconnecting: boolean
   submitting: string | null
   error: string | null
@@ -71,6 +83,7 @@ export function CodexTaskPanel({
   const operation = taskDetail.activeOperation ?? taskDetail.latestOperation
   const [title, setTitle] = useState(task.title)
   const [steering, setSteering] = useState('')
+  const [steeringFeedback, setSteeringFeedback] = useState<'sending' | 'sent' | 'failed' | null>(null)
   const [objective, setObjective] = useState(goal?.objective ?? '')
   const [reviewKind, setReviewKind] = useState<CodexReviewKind>('UNCOMMITTED_CHANGES')
   const [reviewValue, setReviewValue] = useState('')
@@ -78,6 +91,7 @@ export function CodexTaskPanel({
   const [goalFeedback, setGoalFeedback] = useState<'saved' | 'resumed' | 'paused' | 'cleared' | null>(null)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
   const [resizeStart, setResizeStart] = useState<{ pointerX: number; width: number } | null>(null)
+  const steeringRequestRef = useRef(0)
   const busy = submitting !== null
   const goalObjective = goal?.objective.trim() ?? ''
   const objectiveValue = objective.trim()
@@ -86,11 +100,17 @@ export function CodexTaskPanel({
   const presentedActivity = activity
     .filter(({ type }) => type !== 'MESSAGE_DELTA' && type !== 'USAGE_UPDATED')
     .map((item) => item.type === 'MESSAGE_COMPLETED' ? { ...item, text: null } : item)
+  const operationPresentation = describeOperation(operation, reconnecting)
 
   useEffect(() => setTitle(task.title), [task.title])
   useEffect(() => setObjective(goal?.objective ?? ''), [goal?.objective])
   useEffect(() => setGoalFeedback(null), [task.taskId])
   useEffect(() => setGoalFeedback(null), [operation?.operationId])
+  useEffect(() => {
+    steeringRequestRef.current += 1
+    setSteering('')
+    setSteeringFeedback(null)
+  }, [task.taskId, taskDetail.activeOperation?.operationId])
   useEffect(() => {
     if (!resizeStart) return
     const previousCursor = document.body.style.cursor
@@ -113,10 +133,21 @@ export function CodexTaskPanel({
     }
   }, [resizeStart])
 
-  const submitSteering = (event: FormEvent) => {
+  const submitSteering = async (event: FormEvent) => {
     event.preventDefault()
-    if (!steering.trim()) return
-    void onSteer(steering.trim()).then(() => setSteering(''))
+    const content = steering.trim()
+    if (!content || steeringFeedback === 'sending') return
+    const request = ++steeringRequestRef.current
+    setSteeringFeedback('sending')
+    try {
+      await onSteer(content)
+      if (steeringRequestRef.current !== request) return
+      setSteering('')
+      setSteeringFeedback('sent')
+    } catch {
+      if (steeringRequestRef.current !== request) return
+      setSteeringFeedback('failed')
+    }
   }
 
   const submitReview = (event: FormEvent) => {
@@ -327,22 +358,92 @@ export function CodexTaskPanel({
         </section>
 
         <section className="codex-panel-section" aria-labelledby="codex-operation-title">
-          <h3 id="codex-operation-title">Current operation</h3>
-          <p className="codex-operation-status" data-status={operation?.status.toLowerCase() ?? 'idle'}>
-            {reconnecting ? 'Reconnecting to activity…' : operation ? `${operation.type.toLowerCase()} · ${operation.status.toLowerCase().replaceAll('_', ' ')}` : 'No operation yet'}
-          </p>
+          <h3 id="codex-operation-title">Current activity</h3>
+          <div
+            className="codex-operation-status"
+            data-status={operationPresentation.status}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="codex-operation-status__indicator" aria-hidden="true" />
+            <div>
+              <strong>{operationPresentation.title}</strong>
+              <p>{operationPresentation.description}</p>
+            </div>
+          </div>
           {taskDetail.activeOperation && (
             <>
-              <form className="codex-inline-form" onSubmit={submitSteering}>
+              <form className="codex-inline-form" aria-busy={steeringFeedback === 'sending'} onSubmit={(event) => void submitSteering(event)}>
                 <label>
                   <span>Steer active work</span>
-                  <textarea value={steering} rows={2} maxLength={20_000} disabled={busy} onChange={(event) => setSteering(event.target.value)} />
+                  <textarea
+                    value={steering}
+                    rows={2}
+                    maxLength={20_000}
+                    disabled={busy}
+                    aria-describedby={steeringFeedback ? 'codex-steering-feedback' : undefined}
+                    onChange={(event) => {
+                      setSteering(event.target.value)
+                      if (steeringFeedback !== 'sending') setSteeringFeedback(null)
+                    }}
+                  />
                 </label>
-                <button type="submit" disabled={busy || !steering.trim()}>Send steering</button>
+                <button type="submit" disabled={busy || !steering.trim()}>
+                  {steeringFeedback === 'sending' ? 'Sending…' : 'Send steering'}
+                </button>
               </form>
-              <button type="button" disabled={busy} onClick={() => void onStopOperation()}>Stop operation</button>
+              {steeringFeedback && (
+                <div
+                  id="codex-steering-feedback"
+                  className="codex-steering-feedback"
+                  data-state={steeringFeedback}
+                  role={steeringFeedback === 'failed' ? 'alert' : 'status'}
+                >
+                  {steeringFeedback === 'sent' && <span aria-hidden="true"><CheckIcon /></span>}
+                  <div>
+                    <strong>{steeringFeedbackTitle(steeringFeedback)}</strong>
+                    <p>{steeringFeedbackMessage(steeringFeedback)}</p>
+                  </div>
+                </div>
+              )}
+              <button type="button" disabled={busy} onClick={() => void onStopOperation()}>Stop current work</button>
             </>
           )}
+          <section className="codex-steering-history" aria-labelledby="codex-steering-history-title">
+            <div className="codex-steering-history__header">
+              <div>
+                <h4 id="codex-steering-history-title">Instructions sent during this task</h4>
+                <p>Review updates that changed the work already in progress.</p>
+              </div>
+              <span>{steeringUpdates.length}</span>
+            </div>
+            {steeringUpdates.length === 0 ? (
+              <p className="codex-steering-history__empty">No steering instructions have been sent in this H5 session.</p>
+            ) : (
+              <ol className="codex-steering-history__list">
+                {[...steeringUpdates].reverse().map((update) => (
+                  <li key={update.id} data-status={update.status}>
+                    <details>
+                      <summary>
+                        <span className="codex-steering-history__marker" aria-hidden="true" />
+                        <span className="codex-steering-history__preview">
+                          <strong>{steeringPreview(update.content)}</strong>
+                          <small><time dateTime={update.deliveredAt}>{steeringTime(update.deliveredAt)}</time></small>
+                        </span>
+                        <span className="codex-steering-history__status">{steeringStatusLabel(update.status)}</span>
+                        <SelectChevronIcon />
+                      </summary>
+                      <div className="codex-steering-history__detail">
+                        <strong>Complete instruction</strong>
+                        <p>{update.content}</p>
+                      </div>
+                    </details>
+                  </li>
+                ))}
+              </ol>
+            )}
+            <p className="codex-steering-history__privacy">Available only in this signed-in H5 session. Never include credentials or sensitive file contents.</p>
+          </section>
         </section>
 
         <details className="codex-panel-section codex-technical-activity">
@@ -419,6 +520,84 @@ function SelectChevronIcon() {
       <path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
+}
+
+function steeringFeedbackTitle(feedback: 'sending' | 'sent' | 'failed') {
+  if (feedback === 'sending') return 'Sending your update…'
+  if (feedback === 'sent') return 'Steering sent'
+  return 'Steering wasn’t sent'
+}
+
+function steeringFeedbackMessage(feedback: 'sending' | 'sent' | 'failed') {
+  if (feedback === 'sending') return 'Keep this panel open while Synvo delivers your instruction to Codex.'
+  if (feedback === 'sent') return 'Codex accepted your update and will apply it to the current task.'
+  return 'Your instruction is still in the box. Review the error above and try again.'
+}
+
+function steeringPreview(content: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim()
+  return normalized.length <= 120 ? normalized : `${normalized.slice(0, 119).trimEnd()}…`
+}
+
+function steeringTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+function steeringStatusLabel(status: CodexSteeringUpdate['status']) {
+  if (status === 'completed') return 'Task completed'
+  if (status === 'failed') return 'Failed'
+  if (status === 'stopped') return 'Stopped'
+  return 'Delivered'
+}
+
+function describeOperation(operation: CodexOperation | null, reconnecting: boolean) {
+  if (reconnecting) {
+    return {
+      status: 'reconnecting',
+      title: 'Reconnecting to live activity',
+      description: 'Your task is safe. Synvo is restoring the latest progress updates.',
+    }
+  }
+  if (!operation) {
+    return {
+      status: 'idle',
+      title: 'Ready for your next instruction',
+      description: 'No work is currently running in this task.',
+    }
+  }
+  if (operation.status === 'WAITING_FOR_INTERACTION') {
+    return {
+      status: 'waiting',
+      title: 'Waiting for your decision',
+      description: 'Review the requested action to let Codex continue.',
+    }
+  }
+  if (operation.status === 'COMPLETED') {
+    return {
+      status: 'completed',
+      title: operation.type === 'REVIEW' ? 'Review completed' : 'Task completed',
+      description: 'Codex finished the latest work in this task.',
+    }
+  }
+  if (operation.status === 'FAILED') {
+    return {
+      status: 'failed',
+      title: 'Task needs attention',
+      description: 'Codex could not finish the latest work. Review the conversation for details.',
+    }
+  }
+  if (operation.status === 'STOPPED') {
+    return {
+      status: 'stopped',
+      title: 'Work stopped',
+      description: 'The latest work was stopped. You can send a new instruction when ready.',
+    }
+  }
+  return {
+    status: 'running',
+    title: operation.type === 'REVIEW' ? 'Codex is reviewing' : 'Codex is working',
+    description: 'You can send an update below or stop the current work.',
+  }
 }
 
 function describeGoal(status: CodexGoalStatus) {

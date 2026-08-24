@@ -61,6 +61,41 @@ describe('CodexActivityTimeline', () => {
     expect(within(timeline).getByText('Review in the approval panel')).toBeInTheDocument()
   })
 
+  it('shows a delivered steering update in yellow and marks it complete with the turn', () => {
+    const { rerender } = render(
+      <CodexActivityTimeline
+        active
+        operationStatus="RUNNING"
+        reconnecting={false}
+        interaction={null}
+        activity={[event(1, 'TURN_STARTED', 'Codex started')]}
+        steeringStatus="delivered"
+      />,
+    )
+
+    const delivered = screen.getByText('Instructions updated').closest('li')
+    expect(delivered).toHaveAttribute('data-step', 'steering-update')
+    expect(delivered).toHaveAttribute('data-status', 'steering')
+    expect(screen.getByText('Your steering update was delivered to Codex.')).toBeInTheDocument()
+
+    rerender(
+      <CodexActivityTimeline
+        active={false}
+        operationStatus="COMPLETED"
+        reconnecting={false}
+        interaction={null}
+        activity={[
+          event(1, 'TURN_STARTED', 'Codex started'),
+          event(2, 'TURN_COMPLETED', 'Codex task finished', null, 'COMPLETED'),
+        ]}
+        steeringStatus="completed"
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show agent activity' }))
+    expect(screen.getByText('Instructions updated').closest('li')).toHaveAttribute('data-status', 'completed')
+  })
+
   it('collapses completed work into a reopenable step summary', () => {
     render(
       <CodexActivityTimeline

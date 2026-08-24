@@ -50,9 +50,8 @@ class SafeMcpFixtureTest(unittest.TestCase):
                     process, 4, "tools/call", {"name": "write_fixture_marker"}
                 )
                 elicitation = self._read(process)
-                self._respond(
-                    process, elicitation["id"], "accept", {"confirm": True}
-                )
+                self.assertEqual({}, elicitation["params"]["requestedSchema"]["properties"])
+                self._respond(process, elicitation["id"], "accept", {})
                 self.assertIn("SYNVO_MCP_WRITE_OK", str(self._read(process)))
                 self.assertEqual("fixture-ok\n", marker.read_text(encoding="utf-8"))
             finally:

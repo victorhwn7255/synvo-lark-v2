@@ -84,13 +84,13 @@ class CodexRunnerClientTests {
 		JsonNode create = requests.stream()
 				.filter(request -> request.path().equals("/v1/tasks"))
 				.findFirst().orElseThrow().body();
-		assertEquals("/workspaces/pilot", create.path("workspacePath").textValue());
-		assertEquals("readOnly", create.path("mode").textValue());
+		assertEquals("/workspaces/pilot", create.path("workspacePath").stringValue());
+		assertEquals("readOnly", create.path("mode").stringValue());
 		JsonNode turn = requests.stream()
 				.filter(request -> request.path().endsWith("/turns"))
 				.findFirst().orElseThrow().body();
-		assertEquals("workspaceWrite", turn.path("mode").textValue());
-		assertEquals("safe-skill", turn.path("skillName").textValue());
+		assertEquals("workspaceWrite", turn.path("mode").stringValue());
+		assertEquals("safe-skill", turn.path("skillName").stringValue());
 	}
 
 	@Test
@@ -138,7 +138,7 @@ class CodexRunnerClientTests {
 				Map.of());
 
 		ReceivedRequest decision = requests.getLast();
-		assertEquals("decline", decision.body().path("decision").textValue());
+		assertEquals("decline", decision.body().path("decision").stringValue());
 		assertFalse(decision.body().has("content"));
 	}
 
@@ -154,8 +154,8 @@ class CodexRunnerClientTests {
 				.toList();
 		assertEquals(3, goalBodies.size());
 		assertFalse(goalBodies.get(0).has("status"));
-		assertEquals("active", goalBodies.get(1).path("status").textValue());
-		assertEquals("paused", goalBodies.get(2).path("status").textValue());
+		assertEquals("active", goalBodies.get(1).path("status").stringValue());
+		assertEquals("paused", goalBodies.get(2).path("status").stringValue());
 	}
 
 	@Test

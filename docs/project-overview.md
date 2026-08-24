@@ -4,7 +4,9 @@
 
 Synvo is a Lark-native AI assistant. Its current MVP foundation, **Codex in
 Lark**, lets Victor operate the stable user-facing workflow capabilities of the
-OpenAI Codex App Server from Lark Chat and the Lark H5 application.
+OpenAI Codex App Server through the Lark H5 application. The native Lark Chat
+integration is retained as a deferred companion, but H5 is the only supported
+employee interaction surface for the current rollout and Phase 3 closure.
 
 The product roadmap is deliberately staged:
 
@@ -26,7 +28,7 @@ does not expose command, session, prefix, persistent, or Full Access grants.
 
 ## Main Goals
 
-### 1. Operate Codex naturally from Lark
+### 1. Operate Codex naturally from Lark H5
 
 Natural language remains the primary interface. Victor can start and continue
 free-form tasks against explicitly configured real workspaces while Codex
@@ -49,18 +51,19 @@ Synvo integrates the Codex harness; it does not recreate Codex's agent loop,
 planner, tool selection, context management, review behavior, skill system,
 MCP implementation, or internal agent coordination.
 
-### 2. Provide one Lark-native experience
+### 2. Provide one H5-first Lark-native experience
 
-- **Lark Chat** starts or continues tasks, presents safe progress and results,
-  supports cancellation, and hands rich interactions to H5.
-- **Lark Cards** provide safe, actionable links to the owning H5 task.
-- **React H5** is the complete task, workspace, activity, approval, bounded MCP
-  elicitation, review, and result surface.
+- **React H5** is the supported employee surface and the complete task,
+  workspace, activity, approval, bounded MCP elicitation, review, and result
+  client.
+- **Lark Chat and Cards** remain implemented as a deferred companion path, but
+  they are not required for Phase 3 closure and are not part of the current
+  employee workflow.
 
-Conversation, streaming, cancellation, retry, and results share the existing
-application-owned lifecycle across both surfaces. Native Chat is not required
-to reproduce detailed terminal, diff, or approval interfaces that belong in
-H5.
+Conversation, streaming, cancellation, retry, and results remain owned by the
+existing application lifecycle. Phase 3 acceptance verifies that lifecycle in
+H5. Native Chat must be re-verified before it is promoted back into a supported
+employee workflow.
 
 ### 3. Make real workspace execution controlled and understandable
 
@@ -360,10 +363,10 @@ The current MVP does not include:
 
 The foundation is successful when:
 
-- Victor can operate a stable Codex task from both Lark surfaces without
-  learning App Server commands or protocols;
-- H5 supports the complete approved stable workflow envelope and Chat provides
-  a coherent companion experience with secure H5 handoff;
+- Victor can operate a stable Codex task from H5 without learning App Server
+  commands or protocols;
+- H5 supports the complete approved stable workflow envelope; the retained
+  native Chat companion is explicitly outside the current closure gate;
 - real workspace analysis and approved changes remain inside the configured
   root and granted sandbox;
 - dynamic interactions are authorized, policy-bounded, idempotent, auditable,

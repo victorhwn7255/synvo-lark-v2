@@ -1,7 +1,7 @@
 # Phase 3 — Codex in Lark
 
-Status: **In Progress**
-Last updated: 2026-08-23
+Status: **Complete**
+Last updated: 2026-08-24
 Stable-only amended specification approved by Victor: 2026-08-21
 Document-and-data acceptance amendment approved by Victor: 2026-08-22
 Safe Approve product direction selected by Victor (superseded): 2026-08-23
@@ -10,6 +10,9 @@ Safe Approve pinned-runtime hard gate failed: 2026-08-23
 Ask for Approval plus bounded session approval selected by Victor (superseded): 2026-08-23
 Ask for Approval plus bounded session approval approved by Victor (superseded): 2026-08-23
 Sandbox-bounded reduced-click approval approved by Victor: 2026-08-23
+H5-only employee rollout and native-Chat verification waiver approved by Victor: 2026-08-24
+Live competing-request verification removed from Phase 3 closure by Victor: 2026-08-24
+Phase 3 completion directed by Victor after final must-pass verification: 2026-08-24
 
 ## Purpose
 
@@ -31,8 +34,12 @@ fails closed instead of becoming an H5 approval. Bounded workspace-relative
 file decisions and allowlisted MCP interactions remain one-time H5 decisions.
 Synvo does not expose Auto-review, Safe Approve, command-session or
 command-prefix grants, or Full Access.
-Native Lark Chat remains a useful companion for conversation, task start,
-progress, cancellation, results, and secure H5 handoff.
+H5 is the only supported employee interaction surface for the current rollout.
+Native Lark Chat remains implemented as a deferred companion path, but Victor
+explicitly waived all native-Chat and Lark-to-H5 tests for Phase 3 closure on
+2026-08-24 because employees will use H5. Native Chat must be re-verified under
+a future approved test plan before it is promoted back into a supported
+employee workflow.
 
 Phase 3 integrates the Codex harness; it does not recreate an agent loop in
 Synvo. Model inference is OpenAI-hosted, while shell commands, file access,
@@ -89,6 +96,12 @@ therefore approved sandbox-bounded autonomy as the reduced-click mechanism:
 in-boundary work auto-runs, command-elevation requests fail closed, and only
 independently classifiable file and allowlisted MCP interactions remain
 one-time H5 decisions.
+
+On 2026-08-24 Victor selected an H5-only employee rollout. Native Lark Chat and
+Lark-to-H5 handoff remain implemented but are no longer Phase 3 acceptance or
+closure requirements. This is a testing and supported-surface waiver, not
+evidence that the native path passed, and it does not weaken any H5, workspace,
+permission, credential, persistence, or deterministic-result requirement.
 
 ## Baseline
 
@@ -1072,8 +1085,8 @@ implementation proceeds beyond the spike.
 - [ ] Threads created outside Synvo are not exposed.
 - [ ] A first turn sends bounded visible context once; a resumed turn sends no
       duplicate prior context.
-- [ ] Steering reaches only the currently active turn.
-- [ ] Stop interrupts the active turn and produces one terminal outcome.
+- [x] Steering reaches only the currently active turn.
+- [x] Stop interrupts the active turn and produces one terminal outcome.
 - [ ] Goal set/read/clear and supported review targets map to one owning task.
 - [ ] A missing engine thread has one bounded pre-turn reconstruction path.
 - [ ] An uncertain tool-using turn is never automatically replayed.
@@ -1113,13 +1126,13 @@ implementation proceeds beyond the spike.
       replay presentation.
 - [ ] Backend or runner shutdown safely resolves or cancels every pending
       interaction.
-- [ ] PostgreSQL audit rows contain no raw command, argument, output, diff,
+- [x] PostgreSQL audit rows contain no raw command, argument, output, diff,
       prompt, file content, credential, or unrestricted MCP payload.
-- [ ] Transient detail is owner-only, redacted, `no-store`, bounded, and absent
+- [x] Transient detail is owner-only, redacted, `no-store`, bounded, and absent
       from logs and browser persistence.
 - [ ] Ask for Approval preserves the command, file, eligible MCP-tool, and MCP
       elicitation H5 decision flow.
-- [ ] Approval audit stores normalized one-time scope only; no raw command,
+- [x] Approval audit stores normalized one-time scope only; no raw command,
       vendor policy amendment, grant record, reviewer prompt, command output,
       diff, or file content is persisted.
 - [x] Runner developer instructions reduce unique approvals by batching
@@ -1133,7 +1146,7 @@ implementation proceeds beyond the spike.
 - [x] Explicit skill invocation reaches App Server and remains in the owning
       turn.
 - [x] Only allowlisted MCP servers and tools are visible.
-- [ ] A harmless read-only MCP fixture completes; an approval-required fixture
+- [x] A harmless read-only MCP fixture completes; an approval-required fixture
       and an elicitation fixture pause for H5 and never offer a session grant;
       an unknown tool fails closed.
 - [ ] Lark-capable MCP configuration is rejected in Phase 3.
@@ -1143,11 +1156,11 @@ implementation proceeds beyond the spike.
 
 ### Persistence and migration tests
 
-- [ ] V1 through V6 migrate from an empty PostgreSQL database.
-- [ ] A populated V4 database upgrades without changing existing rows.
+- [x] V1 through V6 migrate from an empty PostgreSQL database.
+- [x] A populated V4 database upgrades without changing existing rows.
 - [ ] Task mappings, visible messages, safe replay state, interaction state,
       and audit survive backend restart as specified.
-- [ ] Raw commands, output, diffs, reasoning, file content, configured paths,
+- [x] Raw commands, output, diffs, reasoning, file content, configured paths,
       and credentials are absent from the Phase 3 tables and columns.
 - [ ] Delete removes Synvo task state and requests targeted App Server deletion;
       archive/unarchive preserves the mapping.
@@ -1170,12 +1183,16 @@ implementation proceeds beyond the spike.
       Auto-review, command-prefix grant, or Full Access control.
 - [ ] Steering, stop, approval, MCP-elicitation input, retry, and
       task-management controls are idempotent and disable while submitting.
-- [ ] Bounded output is truncated/redacted predictably and never stored in
+- [x] Bounded output is truncated/redacted predictably and never stored in
       browser persistence.
 - [ ] Keyboard, focus, responsive, reduced-motion, light, and dark behavior
       remain covered.
 
 ### Lark channel tests
+
+**Waived for Phase 3 closure on 2026-08-24.** The following tests are retained
+for any future reactivation of native Lark Chat. They are not marked passed and
+must be executed before Chat becomes a supported employee surface again.
 
 - [ ] A new Victor DM binds to the configured default workspace and creates or
       resumes exactly one Synvo-owned task.
@@ -1205,14 +1222,15 @@ implementation proceeds beyond the spike.
       terminal result with changes confined to the workspace. Routine work
       requires no approval; any independently classifiable file interaction is
       resolved once in H5.
-- [ ] Lark-to-H5 slice: start a free-form task in native Chat, receive an H5
+- [ ] **Waived for Phase 3 closure — deferred native surface.** Lark-to-H5
+      slice: start a free-form task in native Chat, receive an H5
       interaction handoff, decide it in H5, and receive the final result back
       in the same evolving Chat response.
-- [ ] Steering/cancellation slice: steer one active turn and cancel another
+- [x] Steering/cancellation slice: steer one active turn and cancel another
       without duplicate or orphaned work.
-- [ ] Skill/MCP slice: invoke one configured skill and one harmless allowlisted
+- [x] Skill/MCP slice: invoke one configured skill and one harmless allowlisted
       MCP tool through the full application path.
-- [ ] Review slice: run one supported custom review of a document or
+- [x] Review slice: run one supported custom review of a document or
       numerical-data artifact and render its final findings. If the pinned
       runtime restricts its dedicated review method to Git targets, verify that
       protocol behavior with a deterministic fixture and exercise the
@@ -1243,11 +1261,14 @@ Victor completes interactive authentication and selects one configured
 Finance, Products, or Sales workspace.
 
 - [x] GPT-5.6 Sol is confirmed through stable model discovery.
-- [ ] One H5 read-only document/data task, one H5 write/validation task, and
+- [x] One H5 read-only document/data task, one H5 write/validation task, and
       one native Chat task complete through the pinned App Server.
-- [ ] Dynamic approval, MCP elicitation, steering, stop, retry, thread resume,
-      skill invocation, harmless MCP use, review, and Lark-to-H5 handoff are
-      exercised.
+- [x] Steering, stop, retry, thread resume, skill invocation, harmless MCP use,
+      and review are exercised in H5.
+- [x] Dynamic approval and MCP elicitation are exercised in H5 or receive a
+      specific pinned-runtime waiver.
+- [ ] **Waived for Phase 3 closure — deferred native surface.** Lark-to-H5
+      handoff is exercised before native Chat is reactivated.
 - [x] Runner and backend restarts show the specified recovery behavior.
 - [x] A redacted count-only inspection finds no credential, Lark token, private
       prompt, message body, raw command output, diff, or file content in logs.
@@ -1263,8 +1284,9 @@ Phase 3 is complete only when:
 2. GPT-5.6 Sol is the only production model and no substitution occurs.
 3. H5 implements the complete stable user-facing capability envelope defined
    in this specification.
-4. Native Chat can start, continue, observe, cancel, and complete tasks with
-   correct H5 interaction handoff.
+4. **Waived for Phase 3 closure on 2026-08-24.** Native Chat can start,
+   continue, observe, cancel, and complete tasks with correct H5 interaction
+   handoff before it is promoted back into a supported employee workflow.
 5. Real configured workspaces support read-only analysis and approved
    document and numerical-data workspace-write workflows with deterministic
    artifact validation and without outside-root writes.
@@ -1379,8 +1401,25 @@ this specification is `Draft`.
 
 ## Completion Audit
 
-Status: **In Progress — sandbox-bounded reduced-click approval was explicitly
-approved by Victor on 2026-08-23**
+Status: **Complete — accepted by Victor on 2026-08-24 with the recorded
+verification evidence and explicit waivers below**
+
+### H5-only employee rollout waiver — 2026-08-24
+
+- Victor stated that Synvo employees will interact only through H5 because it
+  is faster and provides the complete task UI. He explicitly directed Phase 3
+  to skip all remaining native Lark Chat tests.
+- Native Chat and Lark-to-H5 handoff remain implemented but are not claimed as
+  verified, supported Phase 3 employee workflows. The Lark channel test
+  section, Lark-to-H5 vertical slice, and native parity acceptance criterion
+  are waived for Phase 3 closure.
+- This waiver does not waive H5 approval or elicitation behavior, configured
+  workspace boundaries, deterministic document/data validation, lifecycle
+  recovery, credential isolation, security inspection, or the final automated
+  and migration gates.
+- Any future reactivation of native Chat requires a new approved test plan and
+  direct evidence for the retained channel and handoff tests before employees
+  are directed to use it.
 
 ### Superseded session-approval direction — 2026-08-23
 
@@ -1821,10 +1860,113 @@ the discrepancy and approved correction below.
   This evidence covers configured enabled skills and allowlisted read-only MCP
   tools; it does not claim that arbitrary skills with unavailable dependencies
   or approval-required MCP writes work on the pinned stable runtime.
-- Native-Chat, Lark-to-H5 handoff, MCP elicitation, steering, stop, retry,
-  review, skill invocation, thread management, and the remaining destructive
-  or in-flight restart/recovery cases remain required, followed by the final
-  count-only post-run inspection.
+- Authenticated H5 steering and terminal-state verification on 2026-08-24
+  completed two fresh Finance Full Edit document/data tasks. In each task, one
+  steering update reached the owning active operation, appeared as delivered
+  while work remained active, and became completed only after the operation
+  reached its terminal state. The generated reports retained the original
+  requirements, included the steered requirement, passed deterministic decimal
+  validation within USD 0.01, preserved all three tracked synthetic source
+  files, and added only the requested report. The first task exposed a
+  presentation race: terminal activity completed the conversation timeline and
+  steering history while Task Details briefly restored a stale running
+  operation returned by its refresh. The existing H5 workspace state owner now
+  treats the terminal stream event as authoritative and projects that outcome
+  over stale operation detail. Regression coverage proves a stale refresh
+  cannot restore running controls or text after completion. Complete frontend
+  verification passed all 104 tests in 13 files, typecheck, lint, production
+  build, and `git diff --check`; the replacement frontend container and H5
+  proxy were healthy. The repeated authenticated task then showed **Task
+  completed**, removed the steering and stop controls, changed both steering
+  indicators to completed, and presented six completed milestones across 322
+  normalized events.
+- Authenticated H5 cancellation verification on 2026-08-24 stopped one active
+  Finance read-only turn before it produced a final answer. The conversation
+  showed one stopped response and one terminal stopped milestone; Task Details
+  changed to **Work stopped** and offered no active steering or stop control.
+  A new no-tool follow-up in the same task then returned the requested bounded
+  response, produced one completed terminal outcome, and changed Task Details
+  to **Task completed**. This proves cancellation released the global lease and
+  left no orphaned operation blocking the owning task.
+- Authenticated H5 retry verification on 2026-08-24 stopped a fresh Finance
+  read-only document/data turn and retried the stopped response through the H5
+  retry control. The retry started once, completed normally, retained the
+  read-only workspace boundary, and produced the requested deterministic
+  validation result without modifying source files. Victor confirmed the live
+  retry passed. This evidence covers retry after an explicit stopped terminal
+  outcome; the combined controlled-live interaction criterion remains open for
+  its other listed capabilities.
+- Authenticated H5 document/data review verification on 2026-08-24 reviewed a
+  previously generated Finance report against its three synthetic source files
+  in a fresh read-only task. The review presented findings first, independently
+  recalculated all five cost-center rows, portfolio totals, variance amounts
+  and percentages, close actions, and policy thresholds, and distinguished
+  accurate business content from unsupported historical process assertions.
+  It returned a defensible failed-artifact conclusion because the report made
+  verification-method claims that the bounded review evidence could not
+  corroborate. No file was created or modified. This passes the Phase 3 review
+  capability: the reviewer did not rubber-stamp a numerically accurate artifact
+  whose evidence claims exceeded its available sources.
+- The native Products read-only analysis completed in Lark Chat through the
+  pinned runtime and returned a bounded management summary. The application-
+  owned continuation link opened Synvo AI Assistant H5 for the mapped task.
+  This remains useful historical evidence but does not claim full native
+  interaction parity; the remaining native tests were subsequently waived by
+  the H5-only rollout decision above.
+- Authenticated H5 MCP verification on 2026-08-24 exercised the allowlisted
+  `synvo_safe_fixture` through the model-driven App Server path. The first live
+  run exposed two boundary defects: App Server `0.148.0` reduced the model-turn
+  form to an approval-only schema that the runner rejected, and the explicitly
+  registered MCP subprocess did not receive the fixture's dedicated marker
+  directory. The runner now accepts bounded zero-field confirmation forms while
+  preserving typed forms, and the fixture registration declares only its
+  non-secret marker-directory variable. The corrected run displayed one-time
+  H5 decisions, completed one MCP tool call, returned
+  `SYNVO_MCP_WRITE_OK`, and recorded the resolved interactions without exposing
+  credentials, commands, outputs, prompts, or file contents. The complete
+  runner suite passed 61 tests, the runner was rebuilt, and the four-service
+  stack was healthy before the successful live check.
+- On 2026-08-24 Victor removed the live competing-request/busy-response
+  exercise from Phase 3 closure. The implemented one-active-turn lease and
+  deterministic busy behavior remain in scope and retain automated regression
+  coverage; no live concurrency claim is required for the single-user H5
+  rollout.
+- The final automated, migration, Compose, and count-only security audit passed
+  on 2026-08-24. The runner suite passed 61 tests. Both `./mvnw test` and
+  `./mvnw package` passed 237 backend tests; the package gate produced the
+  executable application artifact. Frontend installation, 104 tests,
+  typecheck, lint, and production build passed. Base and Codex-enabled Compose
+  configurations validated, the three application images rebuilt, and
+  PostgreSQL, runner, backend, and frontend all became healthy.
+- Empty-database migration and populated-V4 upgrade coverage both applied V1
+  through V6 successfully. The rebuilt live database reported exactly six
+  successful versioned migrations, minimum V1 and maximum V6.
+- Sanitized runtime discovery after rebuild reported App Server `0.148.0`,
+  exact model `gpt-5.6-sol`, 14 enabled stable features, 45 below-stable
+  features disabled, and persistent ChatGPT authentication without requiring
+  a new login.
+- The final redacted audit reported zero tracked `.env` files, zero
+  boundary-aware credential-shaped literals in production source and Compose
+  files, zero sensitive production logging calls, and zero sensitive browser
+  persistence calls. Current container logs contained zero credential-shaped
+  values, zero sensitive payload-field markers, and zero configured-workspace
+  path markers. PostgreSQL contained zero forbidden raw audit columns and zero
+  credential-shaped values in safe audit projections. The runner contained
+  zero Lark-named environment keys; its one credential mount and three
+  workspace mounts did not overlap, and the credential directory remained mode
+  `0700`. No matching line, stored value, credential, prompt, message body,
+  command, output, diff, file content, or configured path was printed during
+  the audit.
+- Native Lark Chat and Lark-to-H5 interaction resolution are waived for Phase
+  3 closure under the H5-only rollout decision above. Thread and active-task
+  restart recovery, goals, task management, configured skill invocation,
+  harmless read-only MCP use, native read-only Chat, and H5 steering now have
+  direct live evidence.
+- After reviewing the successful final verification report, Victor directed
+  Phase 3 to `Complete` on 2026-08-24. This accepts the recorded must-pass
+  evidence and explicitly waives the remaining unchecked non-native test-plan
+  rows as Phase 3 closure gates. Those rows remain visible as future regression
+  targets and are not represented as tests that were run or passed.
 - Nemotron, Spring AI, and NVIDIA paths remain intentionally present until
   controlled live Codex conversation and task parity is proven.
 

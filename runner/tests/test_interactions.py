@@ -201,6 +201,42 @@ class InteractionRegistryTest(unittest.TestCase):
             result,
         )
 
+    def test_mcp_approval_only_form_is_held_for_one_time_decision(self) -> None:
+        result: list[dict[str, object]] = []
+        request = ServerRequest(
+            "vendor-approval-only",
+            "mcpServer/elicitation/request",
+            {
+                "mode": "form",
+                "message": "Continue?",
+                "serverName": "synvo_safe_fixture",
+                "requestedSchema": {"type": "object", "properties": {}},
+            },
+        )
+        thread = threading.Thread(
+            target=lambda: result.append(
+                self.registry.hold(
+                    "operation-approval-only",
+                    "workspace-1",
+                    "/workspace/private",
+                    request,
+                )
+            )
+        )
+        thread.start()
+        interaction = self.registry.wait_for_pending(
+            "operation-approval-only", timeout_seconds=1
+        )
+
+        self.assertEqual([], interaction.detail["fields"])
+        self.assertEqual("synvo_safe_fixture", interaction.detail["mcpServer"])
+        self.registry.decide(
+            "operation-approval-only", interaction.interaction_id, "accept"
+        )
+        thread.join(timeout=1)
+
+        self.assertEqual([{"action": "accept", "content": {}}], result)
+
     def test_mcp_url_is_https_bounded_and_rejects_credential_shaped_queries(self) -> None:
         thread = threading.Thread(
             target=lambda: self.registry.hold(

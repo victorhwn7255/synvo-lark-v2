@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,7 +27,6 @@ import synvo.workspaceagent.WorkspaceAgentRepository.OperationStatus;
 import synvo.workspaceagent.WorkspaceAgentRepository.OperationType;
 
 import static org.hamcrest.Matchers.containsString;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -146,13 +144,11 @@ class WorkspaceAgentControllerTests {
 				.andExpect(status().isOk())
 				.andExpect(header().string("Cache-Control", containsString("no-store")));
 
-		ArgumentCaptor<Map<String, String>> values = ArgumentCaptor.forClass(Map.class);
 		verify(facade).decideInteraction(
-				org.mockito.ArgumentMatchers.eq("ou-victor"),
-				org.mockito.ArgumentMatchers.eq(interactionId),
-				org.mockito.ArgumentMatchers.eq(InteractionDecision.APPROVE_ONCE),
-				values.capture());
-		assertEquals(Map.of("confirmation", "yes"), values.getValue());
+				"ou-victor",
+				interactionId,
+				InteractionDecision.APPROVE_ONCE,
+				Map.of("confirmation", "yes"));
 	}
 
 	@Test

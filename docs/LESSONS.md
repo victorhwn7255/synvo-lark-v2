@@ -1164,3 +1164,129 @@ behind replaceable inventory, usage, goal, or presentation metadata.
 
 - `frontend/src/codex/useCodexWorkspace.ts`
 - `frontend/src/codex/CodexWorkspace.test.tsx`
+
+## 2026-08-24 — Verify MCP integrations through the model-driven process boundary
+
+### Symptom
+
+The harmless MCP fixture worked through a direct App Server tool call, but its
+model-driven H5 path first rejected the elicitation before it reached the user.
+After the runner accepted the decision, the tool still failed because its
+private marker directory was unavailable.
+
+### Root cause
+
+Pinned App Server `0.148.0` reduced the fixture's model-turn form to a bounded
+approval-only schema with no fields, while the runner required at least one
+form field. Separately, Codex launches registered MCP subprocesses with an
+explicit environment; registering the server command without `--env` did not
+forward the runner container's marker-directory variable.
+
+### Resolution
+
+Accept zero-field object schemas as one-time MCP confirmations while retaining
+the existing typed-field validation for populated forms. Keep the fixture's
+side effect approval-only, and register its dedicated non-secret directory with
+an explicit MCP environment entry. Do not enable general environment
+inheritance.
+
+### Preventive rule
+
+A direct MCP tool call proves the server protocol but not the complete product
+boundary. Every approval-required MCP integration must also be exercised by a
+model-driven turn through runner normalization, application policy, H5 human
+resolution, and the MCP subprocess environment. Declare the minimum required
+non-secret environment keys explicitly; never assume the runner process
+environment is inherited.
+
+### Verification
+
+- A disposable full-runner probe reproduced the model-turn schema and, after
+  the fix, exposed a pending `mcp_elicitation` instead of rejecting it.
+- All 61 runner tests passed, including populated typed forms, approval-only
+  forms, and the bounded fixture lifecycle.
+- The rebuilt runner and the complete four-service stack were healthy.
+- Authenticated H5 displayed the allowlisted MCP request, accepted the one-time
+  decisions, completed one MCP tool call, and returned
+  `SYNVO_MCP_WRITE_OK`.
+
+### Relevant areas
+
+- `runner/synvo_runner/interactions.py`
+- `runner/fixtures/safe_mcp_server.py`
+- `runner/tests/test_interactions.py`
+- `runner/tests/test_safe_mcp_fixture.py`
+- `README.md`
+
+## 2026-08-24 — Java hygiene must be enforced by the build, not only the IDE
+
+### Symptom
+
+VS Code reported Java diagnostics for unused and redundant imports, an unused
+local variable and private method, deprecated Jackson 3 APIs, an unchecked
+generic test capture, and an unnecessary warning suppression even though the
+Maven test and package lifecycles could still succeed.
+
+### Root cause
+
+The compiler was not configured to fail deprecation or unchecked warnings, and
+`javac` does not provide the same unused-code analysis as the Java language
+server. Jackson 2 compatibility methods remained callable but deprecated after
+the Jackson 3 upgrade. Imports of types nested in implemented interfaces also
+looked necessary at a glance, but were redundant because those member types are
+inherited into the implementing class's scope.
+
+### Why it escaped earlier verification
+
+The relevant diagnostics were enforced only by the developer's IDE. A clean
+Maven build therefore did not prove that the tracked Java sources were free of
+the same warning classes. The first Docker rebuild also revealed that the
+backend image copied `pom.xml` and `src/`, but not the new build-tool
+configuration directory, so host and container builds no longer had identical
+inputs.
+
+### Resolution
+
+- Removed the unused imports, local variable, private helper, and unnecessary
+  suppression while preserving validation side effects.
+- Replaced deprecated Jackson `isTextual()` and `textValue()` calls with the
+  Jackson 3 `isString()` and `stringValue()` APIs.
+- Replaced the raw generic argument capture in the controller test with an
+  exact typed argument verification.
+- Configured Java compilation to fail on deprecation and unchecked warnings.
+- Added a narrow PMD gate for unnecessary imports, unused local variables, and
+  unused private methods across production and test sources. The gate runs in
+  the Maven `test` lifecycle and therefore also runs during `package`.
+- Added the backend build-tool configuration directory to the Docker build
+  stage before Maven packaging.
+
+### Preventive rule
+
+Treat the Maven build as the shared Java-diagnostic source of truth. Do not
+silence deprecation or unchecked warnings broadly; update the API usage or
+repair the generic boundary. Keep the unused-code PMD rules narrow so they
+catch objective hygiene defects without turning style preferences into build
+failures. Whenever Maven references a repository-local configuration file,
+include that file in every build context—especially multi-stage Docker builds.
+
+### Regression coverage and live verification
+
+- Clean test compilation ran with `-Werror`, `-Xlint:deprecation`, and
+  `-Xlint:unchecked` for production and test sources.
+- PMD initially detected four redundant nested-type imports that ordinary
+  compilation accepted, then passed after their removal.
+- `./mvnw test` passed all 237 backend tests.
+- `./mvnw package` passed all 237 backend tests and produced the application
+  artifact.
+- The backend Docker image rebuilt successfully with compiler and PMD gates
+  active, and the complete four-service stack reached healthy state.
+- Backend health returned `UP`; the frontend proxy returned backend status
+  `ready`.
+- `git diff --check` passed.
+
+### Relevant areas
+
+- `backend/pom.xml`
+- `backend/config/pmd/unused-code.xml`
+- `backend/Dockerfile`
+- `backend/src/main/java/synvo/integration/codex/CodexRunnerClient.java`

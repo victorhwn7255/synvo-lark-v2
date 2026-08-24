@@ -81,6 +81,10 @@ class ArchitectureBoundaryTests {
 				"Lark Chat must not invoke Agent Core orchestration directly");
 		assertFalse(larkSource.contains("AgentRuntimeProperties"),
 				"Lark Chat must not own a separate conversation timeout policy");
+		assertTrue(larkSource.contains("WorkspaceConversationAgent"),
+				"Lark Chat task handoffs must use the narrow workspace-agent boundary");
+		assertFalse(larkSource.contains("WorkspaceAgentFacade"),
+				"Lark Chat must not depend on the concrete workspace-agent implementation");
 
 		Path controller = SOURCE_ROOT.resolve("synvo/api/ConversationController.java");
 		String controllerSource = Files.readString(controller);

@@ -86,10 +86,10 @@ export function CodexSidebar({
   }
 
   return (
-    <aside className="workspace-sidebar" aria-label="Codex task navigation">
+    <aside className="workspace-sidebar" aria-label="Synvo AI Assistant task navigation">
       <div className="workspace-sidebar__brand">
         <SynvoLogo />
-        <strong className="workspace-sidebar__label">Codex in Lark</strong>
+        <strong className="workspace-sidebar__label">Synvo AI Assistant</strong>
         <button
           className="workspace-icon-button workspace-sidebar__collapse"
           type="button"

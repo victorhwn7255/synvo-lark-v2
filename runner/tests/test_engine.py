@@ -363,6 +363,11 @@ class CodexEngineTest(unittest.TestCase):
             "do not report a permission blocker",
             create["developerInstructions"],
         )
+        self.assertIn(
+            "do not claim that an approval or user decision is pending",
+            create["developerInstructions"],
+        )
+        self.assertIn("changed to Full Edit", create["developerInstructions"])
         self.assertNotIn("/workspace/private", create["developerInstructions"])
         self.assertEqual("on-request", create["approvalPolicy"])
         self.assertEqual("user", create["approvalsReviewer"])

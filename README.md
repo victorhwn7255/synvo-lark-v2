@@ -4,8 +4,8 @@ Synvo is a single-user, Lark-native client for OpenAI Codex. The repository is
 intentionally one React H5 application, one Spring Boot modular monolith, one
 PostgreSQL database, and one private Python runner sidecar.
 
-The current codebase includes the completed Phases 0 through 2.5 and the
-in-progress Phase 3, **Codex in Lark**:
+The current codebase includes the completed Phases 0 through 3. Phase 3,
+**Codex in Lark**, provides:
 
 ```text
 Lark Chat --\
@@ -16,9 +16,11 @@ React H5 ---/                 |         |                    |
                               +--> encrypted Lark-token boundary       +--> OpenAI-hosted inference
 ```
 
-Lark Chat and H5 share visible conversation lifecycle, while H5 adds configured
-workspace/task management, rich activity, dynamic approvals, skills, MCP,
-goals, review, steering, and thread controls. Spring Boot owns identity,
+H5 is the supported employee surface for the current Phase 3 rollout, with
+configured workspace/task management, rich activity, dynamic approvals,
+skills, MCP, goals, review, steering, and thread controls. The native Lark Chat
+integration remains in the architecture as a deferred companion surface, but
+is not part of Phase 3 closure verification. Spring Boot owns identity,
 authorization, workspace policy, audit, persistence, and the one-active-turn
 lease. The runner hides the pinned stable App Server protocol and local tool
 execution behind a narrow Synvo contract. Enterprise Knowledge Research,
@@ -152,8 +154,9 @@ SYNVO_CODEX_SALES_WORKSPACE_HOST_PATH=./workspaces/Sales
 SYNVO_CODEX_ALLOWED_MCP_SERVERS=
 ```
 
-H5 can select Finance, Products, or Sales for each new task. Products is the
-native Lark Chat default. Every task remains permanently bound to its selected
+H5 can select Finance, Products, or Sales for each new task. The retained
+native Lark Chat integration defaults to Products if it is reactivated for
+future verification. Every task remains permanently bound to its selected
 workspace, and the runner receives only the three explicit folder mounts.
 
 Validate and build the enabled topology with both Compose files:
@@ -186,7 +189,9 @@ home:
 ```bash
 docker compose -f compose.yaml -f compose.codex.yaml run --rm --no-deps \
   --entrypoint /opt/codex/node_modules/.bin/codex codex-runner \
-  mcp add synvo_safe_fixture -- python3 /app/fixtures/safe_mcp_server.py
+  mcp add synvo_safe_fixture \
+  --env SYNVO_MCP_FIXTURE_ROOT=/var/lib/synvo-mcp-fixture \
+  -- python3 /app/fixtures/safe_mcp_server.py
 ```
 
 The fixture has one fixed read-only response and one fixed workspace marker.

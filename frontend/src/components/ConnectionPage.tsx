@@ -50,8 +50,8 @@ export function ConnectionPage({
 
       <main id="main" className="connection-layout">
         <section className="hero-copy" aria-labelledby="page-title">
-          <div className="eyebrow"><span aria-hidden="true" />Phase 3 · Codex in Lark</div>
-          <h1 id="page-title">Your Codex workspace, inside Lark.</h1>
+          <div className="eyebrow"><span aria-hidden="true" />Synvo AI Assistant · Powered by Codex</div>
+          <h1 id="page-title">Your AI workspace, inside Lark.</h1>
           <p className="hero-copy__lede">Run controlled Codex tasks in configured workspaces through one focused, Lark-native interface.</p>
           <div className="trust-note">
             <ShieldIcon />
@@ -63,7 +63,7 @@ export function ConnectionPage({
           <div className="connection-card__header">
             <div>
               <p className="overline">Connection center</p>
-              <h2 id="connection-title">{isAuthorized ? `Welcome, ${connection.user?.displayName ?? 'Victor'}` : 'Connect Codex in Lark'}</h2>
+              <h2 id="connection-title">{isAuthorized ? `Welcome, ${connection.user?.displayName ?? 'Victor'}` : 'Connect Synvo AI Assistant'}</h2>
             </div>
             <div className={`signal-orb signal-orb--${bot.tone}`} aria-hidden="true"><span /></div>
           </div>
@@ -83,7 +83,7 @@ export function ConnectionPage({
                   <h3>Lark identity</h3>
                   <StatusChip label={isAuthorized ? 'Authorized' : connection.larkEnabled ? 'Not connected' : 'Disabled'} tone={isAuthorized ? 'positive' : 'neutral'} />
                 </div>
-                <p>{isAuthorized ? `Signed in securely as ${connection.user?.displayName ?? 'Victor'}.` : insideLark ? 'Authorize once to open your Codex in Lark workspace.' : 'Open the Synvo Web App inside Lark to authorize.'}</p>
+                <p>{isAuthorized ? `Signed in securely as ${connection.user?.displayName ?? 'Victor'}.` : insideLark ? 'Authorize once to open Synvo AI Assistant.' : 'Open Synvo AI Assistant inside Lark to authorize.'}</p>
               </div>
             </div>
           </div>

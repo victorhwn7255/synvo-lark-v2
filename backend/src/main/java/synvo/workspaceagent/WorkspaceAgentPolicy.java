@@ -9,7 +9,6 @@ import java.util.Set;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionDecision;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionDetail;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionField;
-import synvo.workspaceagent.WorkspaceAgentEngine.InteractionFieldType;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionKind;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionRequest;
 import synvo.workspaceagent.WorkspaceAgentEngine.RunMode;

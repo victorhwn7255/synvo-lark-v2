@@ -48,10 +48,10 @@ describe('App', () => {
   it('shows the safe browser-preview state outside Lark', async () => {
     render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(unauthorized) })} h5={h5OutsideLark()} workspaceAgentApi={null} />)
 
-    expect(await screen.findByRole('heading', { name: 'Connect Codex in Lark' })).toBeInTheDocument()
-    expect(screen.getByText('Phase 3 · Codex in Lark')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Connect Synvo AI Assistant' })).toBeInTheDocument()
+    expect(screen.getByText('Synvo AI Assistant · Powered by Codex')).toBeInTheDocument()
     expect(screen.queryByText(/permissioned Lark actions/i)).not.toBeInTheDocument()
-    expect(screen.getByText('Open the Synvo Web App inside Lark to authorize.')).toBeInTheDocument()
+    expect(screen.getByText('Open Synvo AI Assistant inside Lark to authorize.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled()
   })
 
@@ -172,7 +172,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect Synvo' }))
 
-    expect(await screen.findByRole('heading', { name: 'Connect Codex in Lark' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Connect Synvo AI Assistant' })).toBeInTheDocument()
     expect(api.signOut).toHaveBeenCalledWith('csrf')
     expect(localStorageSpy).not.toHaveBeenCalled()
   })

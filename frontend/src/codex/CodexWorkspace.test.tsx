@@ -328,9 +328,107 @@ describe('CodexWorkspace', () => {
     await waitFor(() => expect(codex.api.steer).toHaveBeenCalledWith(
       'operation-1', 'Run typecheck before finishing', 'csrf-token',
     ))
-    fireEvent.click(screen.getByRole('button', { name: 'Stop operation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop current work' }))
     await waitFor(() => expect(conversation.api.stop).toHaveBeenCalledWith('run-1', 'csrf-token'))
     expect(codex.api.stopOperation).not.toHaveBeenCalled()
+  })
+
+  it('acknowledges steering submission and keeps failed instructions available for retry', async () => {
+    const steering = deferred<void>()
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+    vi.mocked(codex.api.steer).mockImplementationOnce(() => steering.promise)
+    const conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    await screen.findByRole('textbox', { name: 'Message Synvo' })
+    fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+
+    const taskPanel = within(screen.getByRole('complementary', { name: 'Codex task details' }))
+    expect(taskPanel.getByRole('heading', { name: 'Current activity' })).toBeInTheDocument()
+    expect(taskPanel.getByText('Codex is working')).toBeInTheDocument()
+    expect(taskPanel.getByText('You can send an update below or stop the current work.')).toBeInTheDocument()
+    expect(screen.queryByText('turn · running')).not.toBeInTheDocument()
+    expect(taskPanel.getByText('Instructions sent during this task')).toBeInTheDocument()
+    expect(taskPanel.getByText('No steering instructions have been sent in this H5 session.')).toBeInTheDocument()
+
+    const steeringInput = screen.getByRole('textbox', { name: 'Steer active work' })
+    fireEvent.change(steeringInput, { target: { value: 'Add the requested owners section' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+
+    expect(await screen.findByRole('button', { name: 'Sending…' })).toBeDisabled()
+    expect(screen.getByText('Sending your update…')).toBeInTheDocument()
+    expect(codex.api.steer).toHaveBeenCalledOnce()
+
+    steering.resolve()
+    expect(await screen.findByText('Steering sent')).toBeInTheDocument()
+    expect(screen.getByText('Codex accepted your update and will apply it to the current task.')).toBeInTheDocument()
+    const steeringMilestone = (await screen.findByText('Instructions updated')).closest('li')
+    expect(steeringMilestone).toHaveAttribute('data-status', 'steering')
+    expect(screen.getByText('Your steering update was delivered to Codex.')).toBeInTheDocument()
+    expect(steeringInput).toHaveValue('')
+
+    const history = within(taskPanel.getByRole('heading', { name: 'Instructions sent during this task' }).closest('section')!)
+    expect(history.getByText('Delivered')).toBeInTheDocument()
+    const deliveredInstruction = history.getAllByText('Add the requested owners section')[0].closest('details')
+    expect(deliveredInstruction).not.toHaveAttribute('open')
+    fireEvent.click(deliveredInstruction!.querySelector('summary')!)
+    expect(deliveredInstruction).toHaveAttribute('open')
+    expect(within(deliveredInstruction!).getByText('Complete instruction')).toBeInTheDocument()
+
+    vi.mocked(codex.api.steer).mockRejectedValueOnce(new Error('Operation finished'))
+    fireEvent.change(steeringInput, { target: { value: 'Keep this instruction available' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+
+    const steeringFailure = await within(screen.getByRole('complementary', { name: 'Codex task details' }))
+      .findByText('Steering wasn’t sent')
+    expect(steeringFailure.closest('[role="alert"]')).toBeInTheDocument()
+    expect(screen.getByText('Your instruction is still in the box. Review the error above and try again.')).toBeInTheDocument()
+    expect(steeringInput).toHaveValue('Keep this instruction available')
+    expect(history.getByText('Failed')).toBeInTheDocument()
+    expect(history.getAllByText('Keep this instruction available')).toHaveLength(2)
+  })
+
+  it('marks delivered steering history complete when its operation finishes', async () => {
+    const operation = activeOperation()
+    const currentDetail = detail({ activeOperation: operation, latestOperation: operation })
+    const codex = codexFlow({ detail: currentDetail })
+    vi.mocked(codex.api.task).mockImplementation(() => Promise.resolve(currentDetail))
+    const conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    await screen.findByRole('textbox', { name: 'Message Synvo' })
+    fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Steer active work' }), {
+      target: { value: 'Add a concise risk summary' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+
+    const taskPanel = within(screen.getByRole('complementary', { name: 'Codex task details' }))
+    const historySection = taskPanel.getByRole('heading', { name: 'Instructions sent during this task' }).closest('section')!
+    const history = within(historySection)
+    const delivered = (await history.findAllByText('Add a concise risk summary'))[0]
+    expect(delivered.closest('li')).toHaveAttribute('data-status', 'delivered')
+
+    act(() => codex.emit({
+      kind: 'activity',
+      sequence: 9,
+      type: 'TURN_COMPLETED',
+      label: 'Codex task finished',
+      text: null,
+      truncated: false,
+      terminalStatus: 'COMPLETED',
+    }))
+
+    await waitFor(() => expect(delivered.closest('li')).toHaveAttribute('data-status', 'completed'))
+    expect(history.getByText('Task completed')).toBeInTheDocument()
+    const currentActivity = taskPanel.getByRole('heading', { name: 'Current activity' }).closest('section')!
+    const operationStatus = within(currentActivity).getByRole('status')
+    expect(within(operationStatus).getByText('Task completed')).toBeInTheDocument()
+    expect(within(operationStatus).getByText('Codex finished the latest work in this task.')).toBeInTheDocument()
+    expect(within(operationStatus).queryByText('Codex is working')).not.toBeInTheDocument()
   })
 
   it('explains a saved goal, its tracked progress, and unsaved changes', async () => {
@@ -411,7 +509,9 @@ describe('CodexWorkspace', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(codex.api.task).toHaveBeenCalledTimes(2))
-    expect(goalView.queryByText('Objective saved. The goal status did not change.')).not.toBeInTheDocument()
+    await waitFor(() => expect(
+      goalView.queryByText('Objective saved. The goal status did not change.'),
+    ).not.toBeInTheDocument())
 
     vi.mocked(codex.api.task).mockResolvedValue(detail({
       activeOperation: null,
@@ -665,11 +765,7 @@ describe('CodexWorkspace', () => {
     await waitFor(() => expect(codex.api.subscribe).toHaveBeenCalledOnce())
     expect(await screen.findByRole('dialog', { name: 'Review file change' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
-    expect(screen.getByRole('button', { name: 'Stop operation' })).toBeInTheDocument()
-    vi.mocked(codex.api.task).mockResolvedValue(detail({
-      activeOperation: null,
-      latestOperation: { ...operation, status: 'COMPLETED' },
-    }))
+    expect(screen.getByRole('button', { name: 'Stop current work' })).toBeInTheDocument()
 
     act(() => codex.emit({
       kind: 'activity',
@@ -685,8 +781,14 @@ describe('CodexWorkspace', () => {
     expect(screen.queryByText('Reconnecting to Codex activity…')).not.toBeInTheDocument()
     await waitFor(() => expect(codex.api.task).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(codex.api.subscribe).toHaveBeenCalledTimes(2))
-    expect(screen.queryByRole('button', { name: 'Stop operation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop current work' })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'Review file change' })).not.toBeInTheDocument()
+    const taskPanel = within(screen.getByRole('complementary', { name: 'Codex task details' }))
+    const currentActivity = taskPanel.getByRole('heading', { name: 'Current activity' }).closest('section')!
+    const operationStatus = within(currentActivity).getByRole('status')
+    expect(within(operationStatus).getByText('Review completed')).toBeInTheDocument()
+    expect(within(operationStatus).getByText('Codex finished the latest work in this task.')).toBeInTheDocument()
+    expect(within(operationStatus).queryByText('Codex is reviewing')).not.toBeInTheDocument()
   })
 })
 
@@ -864,6 +966,16 @@ function activeOperation(type: 'TURN' | 'REVIEW' = 'TURN') {
     createdAt: '2026-08-21T12:00:00Z',
     updatedAt: '2026-08-21T12:00:00Z',
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 function pendingInteraction(): CodexInteraction {

@@ -274,7 +274,7 @@ class InteractionRegistry:
         if not isinstance(schema, dict) or schema.get("type") != "object":
             raise UnsupportedInteraction("MCP form schema is unavailable")
         properties = schema.get("properties")
-        if not isinstance(properties, dict) or not 0 < len(properties) <= 20:
+        if not isinstance(properties, dict) or len(properties) > 20:
             raise UnsupportedInteraction("MCP form schema is unavailable")
         required_value = schema.get("required") or []
         if not isinstance(required_value, list) or not all(

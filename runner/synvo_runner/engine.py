@@ -39,7 +39,11 @@ _RESPONSE_DEVELOPER_INSTRUCTIONS = (
     "in-boundary mechanisms also fail. "
     "Complete work using tools that stay inside the selected sandbox. If an "
     "action would need additional command authority, use an in-boundary "
-    "alternative or report the limitation; do not request expanded command permission."
+    "alternative or report the limitation; do not request expanded command permission. "
+    "If file-changing work is denied because the current task sandbox is read-only, "
+    "do not claim that an approval or user decision is pending. State that no file "
+    "was changed and that the same task must be opened in H5, changed to Full Edit, "
+    "and submitted again."
 )
 
 

@@ -4,7 +4,6 @@ import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -19,7 +18,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 import org.springframework.dao.DataIntegrityViolationException;
 import synvo.workspaceagent.WorkspaceAgentEngine.Activity;
 import synvo.workspaceagent.WorkspaceAgentEngine.ActivityBatch;
@@ -147,7 +145,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		requireReady();
 		workspaces.verifyMode(workspaceId, mode);
 		String title = title(requestedTitle, "New Codex task");
-		WorkspaceDefinition workspace = workspaces.require(workspaceId);
+		workspaces.require(workspaceId);
 		var handle = engine.createTask(workspaces.target(workspaceId), mode);
 		try {
 			return view(repository.createTask(
@@ -355,6 +353,19 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 				engine.stop(runtime.operationReference);
 			}
 		});
+	}
+
+	@Override
+	public Optional<ConversationTaskHandoff> conversationTask(
+			String ownerOpenId,
+			UUID conversationId) {
+		policy.requireOwner(ownerOpenId);
+		return repository.findByConversation(ownerOpenId, conversationId)
+				.filter(task -> workspaces.contains(task.workspaceId()))
+				.map(task -> new ConversationTaskHandoff(
+						task.taskId(),
+						workspaces.require(task.workspaceId()).displayName(),
+						task.mode()));
 	}
 
 	public void steer(String ownerOpenId, UUID operationId, String text) {
@@ -1099,13 +1110,6 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 			throw invalid();
 		}
 		return result;
-	}
-
-	private static String bounded(String value, int maximum, String fallback) {
-		if (value == null || value.isBlank()) {
-			return fallback;
-		}
-		return value.length() <= maximum ? value : value.substring(0, maximum - 1) + "…";
 	}
 
 	private static String decisionScope(InteractionDecision decision) {

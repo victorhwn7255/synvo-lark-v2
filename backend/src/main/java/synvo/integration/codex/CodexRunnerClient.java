@@ -17,8 +17,6 @@ import java.util.Map;
 import java.util.Optional;
 import synvo.configuration.CodexProperties;
 import synvo.workspaceagent.WorkspaceAgentEngine;
-import synvo.workspaceagent.WorkspaceAgentEngine.InteractionField;
-import synvo.workspaceagent.WorkspaceAgentEngine.InteractionFieldType;
 import synvo.workspaceagent.WorkspaceAgentException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -626,10 +624,10 @@ public final class CodexRunnerClient implements WorkspaceAgentEngine {
 		}
 		List<String> values = new ArrayList<>();
 		for (JsonNode value : node) {
-			if (!value.isTextual() || value.textValue().length() > maxLength) {
+			if (!value.isString() || value.stringValue().length() > maxLength) {
 				throw failure(WorkspaceAgentException.Code.PROTOCOL_INCOMPATIBLE);
 			}
-			values.add(value.textValue());
+			values.add(value.stringValue());
 		}
 		return List.copyOf(values);
 	}
@@ -652,7 +650,7 @@ public final class CodexRunnerClient implements WorkspaceAgentEngine {
 
 	private static String text(JsonNode body, String name) {
 		JsonNode value = body.path(name);
-		return value.isTextual() ? value.textValue() : null;
+		return value.isString() ? value.stringValue() : null;
 	}
 
 	private static String segment(String value) {

@@ -15,6 +15,8 @@ import synvo.agent.ConversationRequest;
 import synvo.agent.ConversationRunCoordinator;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
+import synvo.workspaceagent.WorkspaceAgentEngine.RunMode;
+import synvo.workspaceagent.WorkspaceConversationAgent;
 
 @Component
 @ConditionalOnProperty(prefix = "synvo.lark", name = "enabled", havingValue = "true")
@@ -25,6 +27,8 @@ final class LarkDirectMessageHandler {
 			"I couldn’t start a response in Lark. Please try again.";
 	static final String STOP_REQUESTED_REPLY = "Stopping the active Codex task.";
 	static final String NOTHING_TO_STOP_REPLY = "There is no active Codex task to stop.";
+	private static final String LARK_H5_APPLINK =
+			"https://applink.larksuite.com/client/web_app/open";
 
 	private static final Logger log = LoggerFactory.getLogger(LarkDirectMessageHandler.class);
 
@@ -34,6 +38,7 @@ final class LarkDirectMessageHandler {
 	private final LarkChannelClient channelClient;
 	private final ConversationRunCoordinator conversations;
 	private final ConversationQueries conversationQueries;
+	private final WorkspaceConversationAgent workspaceConversations;
 	private volatile String botOpenId;
 
 	LarkDirectMessageHandler(
@@ -42,13 +47,15 @@ final class LarkDirectMessageHandler {
 			LarkConversationBindingRepository conversationBindingRepository,
 			LarkChannelClient channelClient,
 			ConversationRunCoordinator conversations,
-			ConversationQueries conversationQueries) {
+			ConversationQueries conversationQueries,
+			WorkspaceConversationAgent workspaceConversations) {
 		this.properties = properties;
 		this.messageRepository = messageRepository;
 		this.conversationBindingRepository = conversationBindingRepository;
 		this.channelClient = channelClient;
 		this.conversations = conversations;
 		this.conversationQueries = conversationQueries;
+		this.workspaceConversations = workspaceConversations;
 	}
 
 	void setBotOpenId(String botOpenId) {
@@ -75,7 +82,7 @@ final class LarkDirectMessageHandler {
 		}
 
 		channelClient.stream(message, writer -> {
-			conversations.run(
+			var result = conversations.run(
 					new ConversationRequest(
 							message.messageId(),
 							conversationBindingRepository.findConversationId(
@@ -85,6 +92,12 @@ final class LarkDirectMessageHandler {
 					submission -> conversationBindingRepository.bind(
 							message.chatId(), message.senderOpenId(), submission.conversationId()),
 					event -> applyToLarkStream(writer, event));
+			workspaceConversations.conversationTask(
+					message.senderOpenId(), result.conversationId())
+					.ifPresent(task -> writer.showTaskHandoff(
+							new LarkChannelClient.TaskHandoff(
+									task.workspaceName(), accessMode(task.mode())),
+							taskUrl(task.taskId())));
 		})
 				.whenComplete((replyMessageId, failure) -> {
 					if (failure == null) {
@@ -161,20 +174,45 @@ final class LarkDirectMessageHandler {
 	}
 
 	private String handoffUrl(AgentLifecycleEvent.ActionHandoff handoff) {
+		return h5Url(handoff.taskId(), handoff.interactionId());
+	}
+
+	private String taskUrl(java.util.UUID taskId) {
+		return h5Url(taskId, null);
+	}
+
+	private String h5Url(java.util.UUID taskId, java.util.UUID interactionId) {
 		if (!StringUtils.hasText(properties.h5BaseUrl())) {
 			return null;
 		}
 		try {
-			return UriComponentsBuilder.fromUriString(properties.h5BaseUrl())
-					.queryParam("codexTask", handoff.taskId())
-					.queryParam("codexInteraction", handoff.interactionId())
+			String configuredPath = UriComponentsBuilder
+					.fromUriString(properties.h5BaseUrl())
 					.build()
+					.getPath();
+			UriComponentsBuilder builder = UriComponentsBuilder
+					.fromUriString(LARK_H5_APPLINK)
+					.queryParam("appId", properties.appId())
+					.queryParam("mode", "appCenter")
+					.queryParam("reload", "true");
+			if (StringUtils.hasText(configuredPath) && !"/".equals(configuredPath)) {
+				builder.queryParam("path", configuredPath);
+			}
+			builder.queryParam("codexTask", taskId);
+			if (interactionId != null) {
+				builder.queryParam("codexInteraction", interactionId);
+			}
+			return builder.build()
 					.encode()
 					.toUriString();
 		}
 		catch (IllegalArgumentException invalidUrl) {
 			return null;
 		}
+	}
+
+	private static String accessMode(RunMode mode) {
+		return mode == RunMode.WORKSPACE_WRITE ? "Full Edit" : "Read Only";
 	}
 
 	private boolean isEligible(InboundLarkMessage message) {

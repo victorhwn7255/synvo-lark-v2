@@ -38,6 +38,12 @@ public interface LarkChannelClient {
 
 		default void clearActionRequired() {
 		}
+
+		default void showTaskHandoff(TaskHandoff handoff, String h5Url) {
+		}
+	}
+
+	record TaskHandoff(String workspaceName, String accessMode) {
 	}
 
 	record BotProfile(String openId, String displayName) {

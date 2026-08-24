@@ -14,6 +14,7 @@ import synvo.agent.ConversationRunCoordinator;
 import synvo.lark.channel.LarkChannelClient.Signal;
 import synvo.persistence.LarkConversationBindingRepository;
 import synvo.persistence.LarkMessageProcessingRepository;
+import synvo.workspaceagent.WorkspaceConversationAgent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,7 +33,8 @@ class LarkChannelLifecycleTests {
 		LarkDirectMessageHandler handler = new LarkDirectMessageHandler(
 				properties(), mock(LarkMessageProcessingRepository.class),
 				mock(LarkConversationBindingRepository.class), client,
-				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class));
+				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class),
+				mock(WorkspaceConversationAgent.class));
 		LarkChannelLifecycle lifecycle = new LarkChannelLifecycle(client, handler, status);
 
 		lifecycle.connect();
@@ -58,7 +60,8 @@ class LarkChannelLifecycleTests {
 		LarkDirectMessageHandler handler = new LarkDirectMessageHandler(
 				properties(), mock(LarkMessageProcessingRepository.class),
 				mock(LarkConversationBindingRepository.class), client,
-				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class));
+				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class),
+				mock(WorkspaceConversationAgent.class));
 
 		new LarkChannelLifecycle(client, handler, status).connect();
 
@@ -137,7 +140,8 @@ class LarkChannelLifecycleTests {
 		return new LarkDirectMessageHandler(
 				properties(), mock(LarkMessageProcessingRepository.class),
 				mock(LarkConversationBindingRepository.class), client,
-				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class));
+				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class),
+				mock(WorkspaceConversationAgent.class));
 	}
 
 	private static LarkProperties properties() {

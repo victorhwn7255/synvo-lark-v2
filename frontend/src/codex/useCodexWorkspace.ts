@@ -14,6 +14,7 @@ import {
   type CodexSubscription,
   type CodexTask,
   type CodexTaskDetail,
+  type CodexTerminalStatus,
   type CodexWorkspace,
 } from '../api/codex'
 
@@ -40,6 +41,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   const [error, setError] = useState<string | null>(null)
   const subscriptionRef = useRef<CodexSubscription | null>(null)
   const operationIdRef = useRef<string | null>(null)
+  const terminalOperationsRef = useRef(new Map<string, CodexOperation['status']>())
   const selectedTaskIdRef = useRef<string | null>(null)
   const csrfTokenRef = useRef<string | null>(null)
   const mutationInFlightRef = useRef(false)
@@ -87,6 +89,14 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
         }
         setActivity((current) => upsertActivity(current, event))
         if (event.terminalStatus !== null) {
+          terminalOperationsRef.current.set(
+            operation.operationId,
+            operationStatusFromTerminal(event.terminalStatus),
+          )
+          setTaskDetail((current) => current
+            ? projectKnownTerminalOperations(current, terminalOperationsRef.current)
+            : current)
+          setInteraction((current) => current?.operationId === operation.operationId ? null : current)
           subscriptionRef.current?.close()
           subscriptionRef.current = null
           setReconnecting(false)
@@ -130,15 +140,16 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     try {
       const detail = await api.task(taskId, signal)
       if (signal?.aborted || selectedTaskIdRef.current !== taskId) return
-      setTaskDetail(detail)
-      attachOperation(detail.activeOperation ?? detail.latestOperation)
+      const projectedDetail = projectKnownTerminalOperations(detail, terminalOperationsRef.current)
+      setTaskDetail(projectedDetail)
+      attachOperation(projectedDetail.activeOperation ?? projectedDetail.latestOperation)
       const interactionId = requestedInteractionId
-        ?? detail.pendingInteractions[0]?.interactionId
+        ?? projectedDetail.pendingInteractions[0]?.interactionId
         ?? null
       updateDeepLink(taskId, interactionId)
       if (interactionId) await loadInteraction(interactionId, signal)
       void refreshTaskAuxiliary(taskId, signal)
-      return detail
+      return projectedDetail
     } catch (failure: unknown) {
       if (!signal?.aborted) {
         setTaskDetail(null)
@@ -156,16 +167,17 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     try {
       const detail = await api.task(taskId)
       if (selectedTaskIdRef.current !== taskId) return null
-      setTaskDetail(detail)
-      setTasks((current) => upsertTask(current, detail.task))
-      attachOperation(detail.activeOperation ?? detail.latestOperation)
-      const pending = detail.pendingInteractions[0]
+      const projectedDetail = projectKnownTerminalOperations(detail, terminalOperationsRef.current)
+      setTaskDetail(projectedDetail)
+      setTasks((current) => upsertTask(current, projectedDetail.task))
+      attachOperation(projectedDetail.activeOperation ?? projectedDetail.latestOperation)
+      const pending = projectedDetail.pendingInteractions[0]
       if (pending) {
         await loadInteraction(pending.interactionId)
       } else {
         setInteraction(null)
       }
-      return detail
+      return projectedDetail
     } catch (failure: unknown) {
       setError(safeMessage(failure))
       return null
@@ -477,4 +489,42 @@ function safeMessage(error: unknown) {
 
 function isTerminalOperation(status: CodexOperation['status']) {
   return status === 'COMPLETED' || status === 'FAILED' || status === 'STOPPED'
+}
+
+function operationStatusFromTerminal(status: CodexTerminalStatus): CodexOperation['status'] {
+  if (status === 'COMPLETED') return 'COMPLETED'
+  if (status === 'STOPPED') return 'STOPPED'
+  return 'FAILED'
+}
+
+function projectKnownTerminalOperations(
+  detail: CodexTaskDetail,
+  terminalOperations: ReadonlyMap<string, CodexOperation['status']>,
+): CodexTaskDetail {
+  const activeOperation = detail.activeOperation
+  const activeTerminalStatus = activeOperation
+    ? terminalOperations.get(activeOperation.operationId) ?? null
+    : null
+  const latestOperation = detail.latestOperation
+  const latestTerminalStatus = latestOperation
+    ? terminalOperations.get(latestOperation.operationId) ?? null
+    : null
+
+  if (!activeTerminalStatus && !latestTerminalStatus) return detail
+
+  const projectedLatestOperation = latestOperation && latestTerminalStatus
+    ? { ...latestOperation, status: latestTerminalStatus }
+    : activeOperation && activeTerminalStatus
+        && (!latestOperation || latestOperation.operationId === activeOperation.operationId)
+      ? { ...activeOperation, status: activeTerminalStatus }
+      : latestOperation
+
+  return {
+    ...detail,
+    activeOperation: activeTerminalStatus ? null : activeOperation,
+    latestOperation: projectedLatestOperation,
+    pendingInteractions: activeTerminalStatus
+      ? detail.pendingInteractions.filter(({ operationId }) => operationId !== activeOperation?.operationId)
+      : detail.pendingInteractions,
+  }
 }
