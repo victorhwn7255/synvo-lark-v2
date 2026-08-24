@@ -82,8 +82,9 @@ final class ConversationEventStream implements AgentEventPublisher {
 					.data(new StreamEvent(
 						event.sequence(),
 						event.state().name().toLowerCase(Locale.ROOT),
-						event.safeMessage(),
-						event.contentDelta())));
+						 event.safeMessage(),
+						 event.contentDelta(),
+						 event.actionHandoff())));
 			subscriber.lastSequence = event.sequence();
 			return true;
 		}
@@ -115,7 +116,13 @@ final class ConversationEventStream implements AgentEventPublisher {
 				|| event.state() == AgentLifecycleEvent.State.FAILED;
 	}
 
-	record StreamEvent(int sequence, String type, String message, String delta) {
+	record StreamEvent(
+			int sequence,
+			String type,
+			String message,
+			String delta,
+			AgentLifecycleEvent.ActionHandoff action
+	) {
 	}
 
 	private static final class Subscriber {

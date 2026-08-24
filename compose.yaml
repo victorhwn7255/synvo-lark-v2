@@ -35,6 +35,10 @@ services:
       SYNVO_LARK_H5_BASE_URL: ${SYNVO_LARK_H5_BASE_URL:-}
       SYNVO_TOKEN_ENCRYPTION_KEY: ${SYNVO_TOKEN_ENCRYPTION_KEY:-}
       SYNVO_SESSION_SECURE_COOKIE: ${SYNVO_SESSION_SECURE_COOKIE:-true}
+      SYNVO_CODEX_ENABLED: "false"
+      SYNVO_CODEX_RUNNER_BASE_URL: http://codex-runner:8090
+      SYNVO_CODEX_MODEL: gpt-5.6-sol
+      SYNVO_CODEX_RUNTIME_VERSION: 0.148.0
       SYNVO_MODEL_ENABLED: ${SYNVO_MODEL_ENABLED:-false}
       SYNVO_MODEL_BASE_URL: ${SYNVO_MODEL_BASE_URL:-}
       SYNVO_MODEL_NAME: ${SYNVO_MODEL_NAME:-}
@@ -44,12 +48,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      codex-runner:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 15s
+    restart: unless-stopped
+
+  codex-runner:
+    build:
+      context: ./runner
+      target: runtime
+    environment:
+      SYNVO_CODEX_RUNNER_ENABLED: "false"
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2))['state'] == 'disabled'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
     restart: unless-stopped
 
   frontend:

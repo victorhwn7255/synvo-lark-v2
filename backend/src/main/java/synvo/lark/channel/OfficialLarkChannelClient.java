@@ -13,6 +13,10 @@ import com.lark.oapi.core.enums.BaseUrlEnum;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -22,9 +26,27 @@ import synvo.configuration.LarkProperties;
 @ConditionalOnProperty(prefix = "synvo.lark", name = "enabled", havingValue = "true")
 final class OfficialLarkChannelClient implements LarkChannelClient {
 
-	private final LarkChannel channel;
+	private static final Logger log = LoggerFactory.getLogger(OfficialLarkChannelClient.class);
 
+	private final Object channelMonitor = new Object();
+	private final Supplier<LarkChannel> channelFactory;
+	private volatile LarkChannel channel;
+	private volatile Consumer<InboundLarkMessage> messageHandler;
+	private volatile Consumer<Signal> signalHandler;
+	private CompletableFuture<BotProfile> restartPromise;
+	private volatile boolean closed;
+
+	@Autowired
 	OfficialLarkChannelClient(LarkProperties properties) {
+		this(channelFactory(properties));
+	}
+
+	OfficialLarkChannelClient(Supplier<LarkChannel> channelFactory) {
+		this.channelFactory = channelFactory;
+		this.channel = channelFactory.get();
+	}
+
+	private static Supplier<LarkChannel> channelFactory(LarkProperties properties) {
 		LarkChannelOptions.PolicyConfig policy = new LarkChannelOptions.PolicyConfig();
 		policy.setDmMode("allowlist");
 		policy.setDmAllowlist(properties.pilotOpenId());
@@ -44,19 +66,23 @@ final class OfficialLarkChannelClient implements LarkChannelClient {
 				.source("synvo-assistant")
 				.includeRawEvent(false)
 				.build();
-		this.channel = LarkChannelFactory.createLarkChannel(options);
+		return () -> LarkChannelFactory.createLarkChannel(options);
 	}
 
 	@Override
 	public void onMessage(Consumer<InboundLarkMessage> handler) {
-		channel.<NormalizedMessage>on("message", message -> handler.accept(mapMessage(message)));
+		synchronized (channelMonitor) {
+			messageHandler = handler;
+			wireMessageHandler(channel);
+		}
 	}
 
 	@Override
 	public void onSignal(Consumer<Signal> handler) {
-		channel.<Object>on("reconnecting", ignored -> handler.accept(Signal.RECONNECTING));
-		channel.<Object>on("reconnected", ignored -> handler.accept(Signal.RECONNECTED));
-		channel.<Object>on("error", ignored -> handler.accept(Signal.ERROR));
+		synchronized (channelMonitor) {
+			signalHandler = handler;
+			wireSignalHandler(channel);
+		}
 	}
 
 	@Override
@@ -65,8 +91,44 @@ final class OfficialLarkChannelClient implements LarkChannelClient {
 	}
 
 	@Override
+	public CompletableFuture<BotProfile> restart() {
+		synchronized (channelMonitor) {
+			if (closed) {
+				return CompletableFuture.failedFuture(new IllegalStateException("Lark channel client is closed"));
+			}
+			if (restartPromise != null) {
+				return restartPromise;
+			}
+
+			LarkChannel abandoned = channel;
+			LarkChannel replacement = channelFactory.get();
+			wireMessageHandler(replacement);
+			wireSignalHandler(replacement);
+			channel = replacement;
+
+			CompletableFuture<BotProfile> recovery = abandoned.disconnect()
+					.handle((ignored, failure) -> {
+						if (failure != null) {
+							log.warn("The abandoned Lark channel did not close cleanly ({})", failureType(failure));
+						}
+						return null;
+					})
+					.thenCompose(ignored -> connectReplacement(replacement))
+					.thenApply(OfficialLarkChannelClient::mapBotProfile);
+			restartPromise = recovery;
+			recovery.whenComplete((ignored, failure) -> clearRestartPromise(recovery));
+			return recovery;
+		}
+	}
+
+	@Override
 	public CompletableFuture<Void> disconnect() {
-		return channel.disconnect();
+		LarkChannel current;
+		synchronized (channelMonitor) {
+			closed = true;
+			current = channel;
+		}
+		return current.disconnect();
 	}
 
 	@Override
@@ -124,5 +186,61 @@ final class OfficialLarkChannelClient implements LarkChannelClient {
 
 	private static BotProfile mapBotProfile(BotIdentity identity) {
 		return new BotProfile(identity.getOpenId(), identity.getName());
+	}
+
+	private CompletableFuture<BotIdentity> connectReplacement(LarkChannel replacement) {
+		synchronized (channelMonitor) {
+			if (closed || channel != replacement) {
+				return CompletableFuture.failedFuture(new IllegalStateException("Lark channel recovery was superseded"));
+			}
+			return replacement.connect();
+		}
+	}
+
+	private void clearRestartPromise(CompletableFuture<BotProfile> completed) {
+		synchronized (channelMonitor) {
+			if (restartPromise == completed) {
+				restartPromise = null;
+			}
+		}
+	}
+
+	private void wireMessageHandler(LarkChannel source) {
+		if (messageHandler == null) {
+			return;
+		}
+		source.<NormalizedMessage>on("message", message -> {
+			Consumer<InboundLarkMessage> handler = messageHandler;
+			if (isCurrent(source) && handler != null) {
+				handler.accept(mapMessage(message));
+			}
+		});
+	}
+
+	private void wireSignalHandler(LarkChannel source) {
+		if (signalHandler == null) {
+			return;
+		}
+		source.<Object>on("reconnecting", ignored -> emitSignal(source, Signal.RECONNECTING));
+		source.<Object>on("reconnected", ignored -> emitSignal(source, Signal.RECONNECTED));
+		source.<Object>on("error", ignored -> emitSignal(source, Signal.ERROR));
+	}
+
+	private void emitSignal(LarkChannel source, Signal signal) {
+		Consumer<Signal> handler = signalHandler;
+		if (isCurrent(source) && handler != null) {
+			handler.accept(signal);
+		}
+	}
+
+	private boolean isCurrent(LarkChannel source) {
+		return !closed && channel == source;
+	}
+
+	private static String failureType(Throwable failure) {
+		Throwable cause = failure instanceof java.util.concurrent.CompletionException && failure.getCause() != null
+				? failure.getCause()
+				: failure;
+		return cause.getClass().getSimpleName();
 	}
 }

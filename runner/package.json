@@ -1,0 +1,9 @@
+{
+  "name": "synvo-codex-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned Codex runtime for the private Synvo runner",
+  "dependencies": {
+    "@openai/codex": "0.148.0"
+  }
+}

@@ -8,7 +8,9 @@ public record ConversationRequest(
 		UUID conversationId,
 		String userOpenId,
 		String content,
-		UUID replaceFailedAssistantTurnId
+		UUID replaceFailedAssistantTurnId,
+		String reasoningEffort,
+		String skillName
 ) {
 
 	private static final int MAX_REQUEST_ID_LENGTH = 128;
@@ -27,7 +29,25 @@ public record ConversationRequest(
 		if (replaceFailedAssistantTurnId != null && conversationId == null) {
 			throw new IllegalArgumentException("A retry requires an existing conversation");
 		}
+		if (reasoningEffort != null && reasoningEffort.length() > 64) {
+			throw new IllegalArgumentException("Reasoning effort is invalid");
+		}
+		if (skillName != null && skillName.length() > 200) {
+			throw new IllegalArgumentException("Skill name is invalid");
+		}
 		content = content.strip();
+		reasoningEffort = normalizeOptional(reasoningEffort);
+		skillName = normalizeOptional(skillName);
+	}
+
+	public ConversationRequest(
+			String requestId,
+			UUID conversationId,
+			String userOpenId,
+			String content,
+			UUID replaceFailedAssistantTurnId) {
+		this(requestId, conversationId, userOpenId, content,
+				replaceFailedAssistantTurnId, null, null);
 	}
 
 	public ConversationRequest(
@@ -35,6 +55,10 @@ public record ConversationRequest(
 			UUID conversationId,
 			String userOpenId,
 			String content) {
-		this(requestId, conversationId, userOpenId, content, null);
+		this(requestId, conversationId, userOpenId, content, null, null, null);
+	}
+
+	private static String normalizeOptional(String value) {
+		return StringUtils.hasText(value) ? value.strip() : null;
 	}
 }

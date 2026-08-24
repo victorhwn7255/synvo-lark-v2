@@ -151,6 +151,7 @@ describe('conversationApi', () => {
         message: null,
         delta: 'Hello',
         presentation: null,
+        action: null,
       },
       {
         sequence: 5,
@@ -158,6 +159,7 @@ describe('conversationApi', () => {
         message: null,
         delta: null,
         presentation: null,
+        action: null,
       },
     ])
     expect(reconnect).toHaveBeenCalledOnce()
@@ -204,6 +206,41 @@ describe('conversationApi', () => {
     expect(received[1]).toMatchObject({
       delta: 'Safe content remains available.',
       presentation: null,
+    })
+  })
+
+  it('delivers only typed action handoffs from the shared conversation stream', () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const received: ConversationStreamEvent[] = []
+
+    conversationApi.subscribe('run-1', (event) => received.push(event), vi.fn())
+    const source = FakeEventSource.latest as FakeEventSource
+    source.emit('action_required', JSON.stringify({
+      sequence: 6,
+      type: 'action_required',
+      message: 'Open in H5 to review and approve.',
+      delta: null,
+      action: {
+        taskId: 'task-1',
+        interactionId: 'interaction-1',
+        category: 'file change',
+        workspaceName: 'Synvo pilot',
+        reason: 'Change one bounded workspace file.',
+        permissionScope: 'once',
+      },
+    }))
+    source.emit('action_required', JSON.stringify({
+      sequence: 7,
+      type: 'action_required',
+      message: 'unsafe malformed handoff',
+      delta: null,
+      action: { taskId: 'task-1' },
+    }))
+
+    expect(received).toHaveLength(1)
+    expect(received[0]).toMatchObject({
+      type: 'action_required',
+      action: { interactionId: 'interaction-1', workspaceName: 'Synvo pilot' },
     })
   })
 })

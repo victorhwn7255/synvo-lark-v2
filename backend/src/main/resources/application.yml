@@ -43,7 +43,16 @@ logging:
 
 synvo:
   agent:
-    response-timeout: ${SYNVO_AGENT_RESPONSE_TIMEOUT:120s}
+    response-timeout: ${SYNVO_AGENT_RESPONSE_TIMEOUT:30m}
+  codex:
+    enabled: ${SYNVO_CODEX_ENABLED:false}
+    runner-base-url: ${SYNVO_CODEX_RUNNER_BASE_URL:http://codex-runner:8090}
+    model: ${SYNVO_CODEX_MODEL:gpt-5.6-sol}
+    runtime-version: ${SYNVO_CODEX_RUNTIME_VERSION:0.148.0}
+    reasoning-effort: ${SYNVO_CODEX_REASONING_EFFORT:high}
+    request-timeout: ${SYNVO_CODEX_REQUEST_TIMEOUT:30s}
+    activity-poll-timeout: ${SYNVO_CODEX_ACTIVITY_POLL_TIMEOUT:25s}
+    interaction-timeout: ${SYNVO_CODEX_INTERACTION_TIMEOUT:5m}
   lark:
     enabled: ${SYNVO_LARK_ENABLED:false}
     app-id: ${SYNVO_LARK_APP_ID:}

@@ -228,6 +228,215 @@
   opacity: .58;
 }
 
+.codex-task-entry {
+  width: 100%;
+}
+
+.codex-task-row {
+  width: 100%;
+  min-height: 2.35rem;
+  display: flex;
+  align-items: center;
+  margin-bottom: .12rem;
+  border-radius: .7rem;
+  background: transparent;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.codex-task-row:hover,
+.codex-task-row:focus-within {
+  background: color-mix(in srgb, var(--violet-soft) 34%, var(--surface-muted));
+}
+
+.codex-task-row[data-active="true"] {
+  background: color-mix(in srgb, var(--violet-soft) 80%, var(--surface-muted));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--violet) 30%, transparent),
+    0 5px 16px -14px color-mix(in srgb, var(--violet) 72%, transparent);
+}
+
+.codex-task-row__open {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  background: transparent;
+}
+
+.codex-task-row__open:not(:disabled):hover,
+.codex-task-row__open[aria-current="page"] {
+  background: transparent;
+}
+
+.codex-task-row[data-active="true"] .codex-task-row__open {
+  color: var(--ink);
+  font-weight: 640;
+}
+
+.codex-task-row[data-active="true"] .codex-task-row__open > svg {
+  color: var(--violet);
+}
+
+.codex-task-row__pin {
+  width: 1rem;
+  height: 1rem;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--violet);
+}
+
+.codex-task-row__pin svg {
+  width: .82rem;
+  height: .82rem;
+}
+
+.codex-task-row__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .12rem;
+  padding-right: .3rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(.25rem);
+  transition:
+    opacity 140ms ease,
+    transform 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.codex-task-row:hover .codex-task-row__actions,
+.codex-task-row:focus-within .codex-task-row__actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.codex-task-row__action {
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: .5rem;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
+}
+
+.codex-task-row__action:not(:disabled):hover,
+.codex-task-row__action:not(:disabled):focus-visible {
+  background: color-mix(in srgb, var(--violet-soft) 86%, var(--surface-strong));
+  color: var(--violet);
+}
+
+.codex-task-row__action--delete:not(:disabled):hover,
+.codex-task-row__action--delete:not(:disabled):focus-visible {
+  background: var(--negative-soft);
+  color: var(--negative);
+}
+
+.codex-task-row__action:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+
+.codex-task-row__action svg {
+  width: .94rem;
+  height: .94rem;
+}
+
+.codex-task-rename {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .24rem .3rem .24rem .7rem;
+}
+
+.codex-task-rename > svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  color: var(--violet);
+}
+
+.codex-task-rename label {
+  min-width: 0;
+  flex: 1;
+}
+
+.codex-task-rename input {
+  width: 100%;
+  min-width: 0;
+  height: 1.8rem;
+  border: 1px solid color-mix(in srgb, var(--violet) 52%, var(--border-strong));
+  border-radius: .48rem;
+  padding: 0 .48rem;
+  outline: 0;
+  background: var(--surface-strong);
+  color: var(--ink);
+  font: inherit;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--violet) 14%, transparent);
+}
+
+.codex-task-delete-confirm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .35rem;
+  margin: .18rem 0 .5rem;
+  border: 1px solid color-mix(in srgb, var(--negative) 32%, var(--border));
+  border-radius: .68rem;
+  padding: .48rem;
+  background: color-mix(in srgb, var(--negative-soft) 34%, var(--surface-strong));
+}
+
+.codex-task-delete-confirm p {
+  min-width: 0;
+  display: grid;
+  gap: .08rem;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: .63rem;
+}
+
+.codex-task-delete-confirm p strong {
+  color: var(--ink);
+  font-size: .67rem;
+}
+
+.codex-task-delete-confirm button {
+  min-height: 1.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: .48rem;
+  padding: 0 .42rem;
+  background: var(--surface-strong);
+  color: var(--ink-soft);
+  font-size: .6rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.codex-task-delete-confirm button:first-of-type {
+  border-color: color-mix(in srgb, var(--negative) 52%, var(--border-strong));
+  color: var(--negative);
+}
+
+.codex-task-delete-confirm button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
 .workspace-recent-item {
   width: 100%;
   display: flex;
@@ -407,6 +616,20 @@
   margin-inline: auto;
 }
 
+.workspace-shell[data-sidebar-collapsed="true"] .codex-task-row {
+  width: 2.35rem;
+  margin-inline: auto;
+}
+
+.workspace-shell[data-sidebar-collapsed="true"] .codex-task-row__open {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.workspace-shell[data-sidebar-collapsed="true"] .codex-task-row__pin {
+  display: none;
+}
+
 .workspace-shell[data-sidebar-collapsed="true"] .workspace-recent-item__open {
   justify-content: center;
   padding-inline: 0;
@@ -433,6 +656,14 @@
 .workspace-shell[data-sidebar-collapsed="true"] .workspace-new-button svg {
   width: .92rem;
   height: .92rem;
+}
+
+@media (hover: none) {
+  .codex-task-row__actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
 }
 
 .workspace-main {
@@ -548,4 +779,3 @@
 .workspace-content[data-artifact-open="true"] {
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem);
 }
-

@@ -218,17 +218,32 @@ public class JdbcConversationStore implements ConversationStore {
 	}
 
 	private void insertEvent(UUID runId, AgentLifecycleEvent event) {
+		AgentLifecycleEvent.ActionHandoff handoff = event.actionHandoff();
 		jdbcClient.sql("""
 				INSERT INTO agent_run_event (
-				    run_id, sequence_number, event_type, safe_message, content_delta, created_at
+				    run_id, sequence_number, event_type, safe_message, content_delta,
+				    action_task_id, action_interaction_id, safe_action_category,
+				    safe_workspace_name, safe_action_reason, action_permission_scope,
+				    created_at
 				)
-				VALUES (:runId, :sequence, :eventType, :safeMessage, :contentDelta, :now)
+				VALUES (
+				    :runId, :sequence, :eventType, :safeMessage, :contentDelta,
+				    :actionTaskId, :actionInteractionId, :actionCategory,
+				    :workspaceName, :actionReason, :permissionScope,
+				    :now
+				)
 				""")
 				.param(RUN_ID_PARAMETER, runId)
 				.param("sequence", event.sequence())
 				.param("eventType", event.state().name())
 				.param("safeMessage", event.safeMessage())
 				.param("contentDelta", event.contentDelta())
+				.param("actionTaskId", handoff == null ? null : handoff.taskId())
+				.param("actionInteractionId", handoff == null ? null : handoff.interactionId())
+				.param("actionCategory", handoff == null ? null : handoff.category())
+				.param("workspaceName", handoff == null ? null : handoff.workspaceName())
+				.param("actionReason", handoff == null ? null : handoff.reason())
+				.param("permissionScope", handoff == null ? null : handoff.permissionScope())
 				.param("now", atUtc(Instant.now()))
 				.update();
 	}
@@ -380,7 +395,9 @@ public class JdbcConversationStore implements ConversationStore {
 			throw new IllegalArgumentException("Event sequence cannot be negative");
 		}
 		return jdbcClient.sql("""
-				SELECT sequence_number, event_type, safe_message, content_delta
+				SELECT sequence_number, event_type, safe_message, content_delta,
+				       action_task_id, action_interaction_id, safe_action_category,
+				       safe_workspace_name, safe_action_reason, action_permission_scope
 				FROM agent_run_event
 				WHERE run_id = :runId
 				  AND sequence_number > :afterSequence
@@ -388,11 +405,26 @@ public class JdbcConversationStore implements ConversationStore {
 				""")
 				.param(RUN_ID_PARAMETER, runId)
 				.param("afterSequence", afterSequence)
-				.query((resultSet, rowNumber) -> new AgentLifecycleEvent(
-						resultSet.getInt("sequence_number"),
-						AgentLifecycleEvent.State.valueOf(resultSet.getString("event_type")),
-						resultSet.getString("safe_message"),
-						resultSet.getString("content_delta")))
+				.query((resultSet, rowNumber) -> {
+					AgentLifecycleEvent.State state = AgentLifecycleEvent.State.valueOf(
+							resultSet.getString("event_type"));
+					AgentLifecycleEvent.ActionHandoff handoff = state
+							== AgentLifecycleEvent.State.ACTION_REQUIRED
+							? new AgentLifecycleEvent.ActionHandoff(
+									resultSet.getObject("action_task_id", UUID.class),
+									resultSet.getObject("action_interaction_id", UUID.class),
+									resultSet.getString("safe_action_category"),
+									resultSet.getString("safe_workspace_name"),
+									resultSet.getString("safe_action_reason"),
+									resultSet.getString("action_permission_scope"))
+							: null;
+					return new AgentLifecycleEvent(
+							resultSet.getInt("sequence_number"),
+							state,
+							resultSet.getString("safe_message"),
+							resultSet.getString("content_delta"),
+							handoff);
+				})
 				.list();
 	}
 

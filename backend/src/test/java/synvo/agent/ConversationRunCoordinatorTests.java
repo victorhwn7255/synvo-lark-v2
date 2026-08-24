@@ -8,6 +8,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,6 +123,31 @@ class ConversationRunCoordinatorTests {
 				observed.stream().map(AgentLifecycleEvent::state).toList());
 		result.get(2, TimeUnit.SECONDS);
 		assertFalse(coordinator.stop(run.runId()));
+	}
+
+	@Test
+	void synchronousSurfaceReceivesRunIdentityBeforeExecutionAndCanCancelIt() throws Exception {
+		coordinator = new ConversationRunCoordinator(
+				core, mock(AgentEventPublisher.class),
+				new AgentRuntimeProperties(Duration.ofMinutes(2)));
+		CountDownLatch identified = new CountDownLatch(1);
+		AtomicReference<ConversationRunCoordinator.Submission> submission =
+				new AtomicReference<>();
+
+		CompletableFuture<ConversationResult> result = CompletableFuture.supplyAsync(
+				() -> coordinator.run(
+						request("lark-cancellable-run"),
+						accepted -> {
+							submission.set(accepted);
+							identified.countDown();
+						},
+						ignored -> { }));
+
+		assertTrue(identified.await(2, TimeUnit.SECONDS));
+		assertEquals(run.runId(), submission.get().runId());
+		assertTrue(coordinator.stop(submission.get().runId()));
+		assertTrue(cancellationObserved.await(2, TimeUnit.SECONDS));
+		result.get(2, TimeUnit.SECONDS);
 	}
 
 	@Test

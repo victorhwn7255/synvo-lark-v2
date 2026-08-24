@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { larkApi, type LarkApi, type LarkConnection } from './api/lark'
+import { codexApi, type CodexApi } from './api/codex'
 import { ConnectionPage } from './components/ConnectionPage'
 import { Workspace } from './components/Workspace'
 import { larkH5, type LarkH5Adapter } from './lark/h5'
@@ -7,6 +8,7 @@ import { larkH5, type LarkH5Adapter } from './lark/h5'
 interface AppProps {
   api?: LarkApi
   h5?: LarkH5Adapter
+  workspaceAgentApi?: CodexApi | null
 }
 
 type AppState =
@@ -14,7 +16,7 @@ type AppState =
   | { kind: 'ready'; connection: LarkConnection; error: string | null; busy: boolean }
   | { kind: 'error'; message: string }
 
-function App({ api = larkApi, h5 = larkH5 }: AppProps) {
+function App({ api = larkApi, h5 = larkH5, workspaceAgentApi = codexApi }: AppProps) {
   const [state, setState] = useState<AppState>({ kind: 'loading' })
   const [insideLark, setInsideLark] = useState(h5.isAvailable())
 
@@ -97,6 +99,7 @@ function App({ api = larkApi, h5 = larkH5 }: AppProps) {
         busy={state.busy}
         userAvatarUrl={state.connection.user?.avatarUrl ?? null}
         onSignOut={() => void signOut(state.connection)}
+        workspaceAgentApi={workspaceAgentApi ?? undefined}
       />
     )
   }

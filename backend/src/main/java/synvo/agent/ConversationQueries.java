@@ -26,7 +26,8 @@ public interface ConversationQueries {
 			UUID conversationId,
 			String title,
 			Instant updatedAt,
-			List<ConversationTurn> turns
+			List<ConversationTurn> turns,
+			RunDescriptor activeRun
 	) {
 		public ConversationDetail {
 			turns = List.copyOf(turns);

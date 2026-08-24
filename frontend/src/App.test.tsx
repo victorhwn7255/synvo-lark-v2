@@ -30,14 +30,14 @@ describe('App', () => {
       getConnection: vi.fn(() => new Promise<LarkConnection>(() => undefined)),
     })
 
-    render(<App api={api} h5={h5OutsideLark()} />)
+    render(<App api={api} h5={h5OutsideLark()} workspaceAgentApi={null} />)
 
     expect(screen.getByRole('status')).toHaveTextContent('Preparing your Synvo workspace')
     expect(screen.getByText('Checking the secure Lark connection…')).toBeInTheDocument()
   })
 
   it('routes an authorized user into the workspace without duplicating Lark identity', async () => {
-    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(connected) })} h5={h5OutsideLark()} />)
+    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(connected) })} h5={h5OutsideLark()} workspaceAgentApi={null} />)
 
     expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument()
@@ -46,10 +46,12 @@ describe('App', () => {
   })
 
   it('shows the safe browser-preview state outside Lark', async () => {
-    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(unauthorized) })} h5={h5OutsideLark()} />)
+    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(unauthorized) })} h5={h5OutsideLark()} workspaceAgentApi={null} />)
 
-    expect(await screen.findByRole('heading', { name: 'Connect Synvo' })).toBeInTheDocument()
-    expect(screen.getByText('Open the Synvo Web App inside Lark to authorize.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Connect Synvo AI Assistant' })).toBeInTheDocument()
+    expect(screen.getByText('Synvo AI Assistant · Powered by Codex')).toBeInTheDocument()
+    expect(screen.queryByText(/permissioned Lark actions/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Open Synvo AI Assistant inside Lark to authorize.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled()
   })
 
@@ -70,7 +72,7 @@ describe('App', () => {
       requestAuthorizationCode: vi.fn().mockResolvedValue('short-lived-code'),
     }
 
-    render(<App api={api} h5={h5} />)
+    render(<App api={api} h5={h5} workspaceAgentApi={null} />)
 
     expect(await screen.findByRole('main', { name: 'Synvo AI workspace' })).toBeInTheDocument()
     expect(h5.requestAuthorizationCode).toHaveBeenCalledWith('cli-public-id', 'one-time-state')
@@ -96,7 +98,7 @@ describe('App', () => {
       requestAuthorizationCode: vi.fn().mockResolvedValue('late-code'),
     }
 
-    render(<App api={api} h5={h5} />)
+    render(<App api={api} h5={h5} workspaceAgentApi={null} />)
 
     expect(await screen.findByText('Browser preview')).toBeInTheDocument()
     bridgeReady?.(true)
@@ -125,7 +127,7 @@ describe('App', () => {
       requestAuthorizationCode: vi.fn().mockResolvedValue('code'),
     }
 
-    render(<App api={api} h5={h5} />)
+    render(<App api={api} h5={h5} workspaceAgentApi={null} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Authorization expired.')
     fireEvent.click(screen.getByRole('button', { name: 'Try authorization again' }))
@@ -136,7 +138,7 @@ describe('App', () => {
 
   it('shows reconnecting in text rather than color alone', async () => {
     const reconnecting = { ...connected, botConnection: 'reconnecting' as const }
-    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(reconnecting) })} h5={h5OutsideLark()} />)
+    render(<App api={apiWith({ getConnection: vi.fn().mockResolvedValue(reconnecting) })} h5={h5OutsideLark()} workspaceAgentApi={null} />)
 
     expect(await screen.findByText('The assistant channel is reconnecting automatically.')).toBeInTheDocument()
   })
@@ -146,7 +148,7 @@ describe('App', () => {
       .mockRejectedValueOnce(new Error('Network request failed'))
       .mockResolvedValueOnce(connected)
 
-    render(<App api={apiWith({ getConnection })} h5={h5OutsideLark()} />)
+    render(<App api={apiWith({ getConnection })} h5={h5OutsideLark()} workspaceAgentApi={null} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Network request failed')
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
@@ -166,11 +168,11 @@ describe('App', () => {
       signOut: vi.fn().mockResolvedValue(unauthorized),
     })
 
-    render(<App api={api} h5={h5OutsideLark()} />)
+    render(<App api={api} h5={h5OutsideLark()} workspaceAgentApi={null} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect Synvo' }))
 
-    expect(await screen.findByRole('heading', { name: 'Connect Synvo' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Connect Synvo AI Assistant' })).toBeInTheDocument()
     expect(api.signOut).toHaveBeenCalledWith('csrf')
     expect(localStorageSpy).not.toHaveBeenCalled()
   })

@@ -82,8 +82,19 @@ class ConversationQueryRepository implements ConversationQueries {
 						toInstant(resultSet, UPDATED_AT_COLUMN)))
 				.list();
 		ConversationHeader value = header.orElseThrow();
+		RunDescriptor activeRun = jdbcClient.sql("""
+				SELECT r.run_id, r.request_id, r.conversation_id, r.user_turn_id,
+				       r.assistant_turn_id, r.intent, r.status
+				FROM agent_run r
+				WHERE r.conversation_id = :conversationId
+				  AND r.status = 'RUNNING'
+				""")
+				.param(CONVERSATION_ID_PARAMETER, conversationId)
+				.query(ConversationQueryRepository::mapRun)
+				.optional()
+				.orElse(null);
 		return Optional.of(new ConversationDetail(
-				value.conversationId(), value.title(), value.updatedAt(), turns));
+				value.conversationId(), value.title(), value.updatedAt(), turns, activeRun));
 	}
 
 	@Override

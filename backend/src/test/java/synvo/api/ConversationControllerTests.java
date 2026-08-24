@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import synvo.agent.AgentIntent;
 import synvo.agent.AgentLifecycleEvent;
 import synvo.agent.ConversationQueries;
+import synvo.agent.ConversationQueries.ConversationDetail;
 import synvo.agent.ConversationQueries.ConversationSummary;
 import synvo.agent.ConversationQueries.DeleteResult;
 import synvo.agent.ConversationQueries.RunDescriptor;
@@ -76,6 +77,26 @@ class ConversationControllerTests {
 	}
 
 	@Test
+	void detailExposesOnlyTheOwningActiveRunNeededForRefreshReconnect() throws Exception {
+		when(queries.findConversation("ou-victor", conversationId)).thenReturn(Optional.of(
+				new ConversationDetail(
+						conversationId,
+						"Persisted title",
+						Instant.parse("2026-08-18T01:00:00Z"),
+						List.of(),
+						ownedRun())));
+
+		mvc.perform(get("/api/conversations/{conversationId}", conversationId)
+					.session(new MockHttpSession()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.activeRun.runId").value(runId.toString()))
+				.andExpect(jsonPath("$.activeRun.assistantTurnId").isNotEmpty())
+				.andExpect(jsonPath("$.activeRun.status").value("RUNNING"));
+
+		verify(queries).findConversation("ou-victor", conversationId);
+	}
+
+	@Test
 	void deleteIsOwnerScopedAndReturnsNoContentOnlyAfterPersistentDeletion() throws Exception {
 		when(queries.deleteOwnedConversation("ou-victor", conversationId))
 				.thenReturn(DeleteResult.DELETED);
@@ -120,7 +141,13 @@ class ConversationControllerTests {
 					.session(new MockHttpSession())
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-							{"requestId":"request-1","conversationId":null,"content":"Explain SSE"}
+							{
+							  "requestId":"request-1",
+							  "conversationId":null,
+							  "content":"Explain SSE",
+							  "reasoningEffort":"high",
+							  "skillName":"workspace-audit"
+							}
 							"""))
 				.andExpect(status().isAccepted())
 				.andExpect(jsonPath("$.runId").value(runId.toString()))
@@ -131,6 +158,8 @@ class ConversationControllerTests {
 		assertEquals("ou-victor", request.getValue().userOpenId());
 		assertEquals("Explain SSE", request.getValue().content());
 		assertEquals(null, request.getValue().replaceFailedAssistantTurnId());
+		assertEquals("high", request.getValue().reasoningEffort());
+		assertEquals("workspace-audit", request.getValue().skillName());
 	}
 
 	@Test

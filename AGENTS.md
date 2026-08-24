@@ -73,16 +73,27 @@ Design*.
 
 ## Product Scope
 
-Synvo is a Lark-native AI assistant with two MVP workflows:
+Synvo is a Lark-native AI assistant. The approved MVP roadmap has two stages:
 
-1. Enterprise Knowledge Research
-2. Meeting-to-Execution
+1. Phase 3, **Codex in Lark**, is a single-user rich client for the stable
+   Codex App Server workflow capabilities defined in
+   `docs/specs/phase-3-codex-in-lark.md`.
+2. Phase 4 will add one opinionated, bounded Synvo workplace workflow on top
+   of that foundation. It requires its own approved specification.
 
 Natural language is the primary user interface.
 
-Enterprise Knowledge Research is limited to one configured folder in Victor's
-Lark Drive. Do not expand retrieval to every resource Victor can access unless
-explicitly requested.
+The earlier Enterprise Knowledge Research and Meeting-to-Execution proposals
+are not Phase 3 scope and must not be reconstructed as active requirements.
+Phase 3 adds no Lark business-resource reads or writes. If Enterprise Knowledge
+Research is approved in a later phase, it remains limited to one configured
+folder in Victor's Lark Drive unless a new specification explicitly changes
+that boundary.
+
+Phase 3 product tasks focus on documents, reports, presentations, CSV files,
+and numerical data. Controlled writes use deterministic artifact validation,
+not software test execution. Software coding and repository-development tasks
+are deferred and must not be added as Phase 3 acceptance requirements.
 
 ## Technology Direction
 
@@ -90,18 +101,21 @@ explicitly requested.
 - Backend: Java and Spring Boot
 - Lark integration: Lark OpenAPI Java SDK
 - Agent foundation: Synvo Agent Core (Synvo-owned orchestration boundary)
-- Agent engine: OpenAI Codex through the Codex app-server and official Python SDK
-- Engine runner: one Python sidecar service behind a Synvo-owned engine port
+- Agent engine: OpenAI Codex through a pinned official Codex App Server
+- Engine runner: one private Python sidecar controlling the documented stable
+  App Server stdio JSON-RPC protocol behind a Synvo-owned workspace-agent port
 - Persistence: PostgreSQL
 - Client communication: REST and Server-Sent Events
 
 Do not replace these choices or add competing frameworks without an explicit
 requirement and a documented reason.
 
-Codex protocol, SDK, and runner details stay inside the engine runner and its
-backend adapter. Do not make the application architecture depend directly on
-Codex specifics; replacing the engine must not require changes outside that
-boundary.
+The Python SDK is not part of the Phase 3 production path. Codex protocol,
+process-supervision, authentication-state, and runner details stay inside one
+conceptual integration module comprising the Synvo port, private Java adapter,
+runner contract, and Python App Server client. Do not make Agent Core, surface
+adapters, persistence, or frontend contracts depend directly on Codex or
+runner specifics.
 
 ## Architecture Rules
 
@@ -109,17 +123,42 @@ Build the backend as a modular monolith.
 
 Maintain the following boundaries:
 
-- The Synvo Agent Core interprets requests, manages context, and runs workflows.
+- `ConversationRunCoordinator` retains application-owned message identity,
+  deduplication, visible-turn lifecycle, cancellation entry, and exactly-one
+  terminal ownership for both Lark surfaces.
+- The Synvo Agent Core interprets requests, manages conversational context, and
+  delegates normalized Codex-capable turns without becoming an agent harness.
+- The Workspace Agent facade owns task/thread commands, configured-workspace
+  binding, one-active-turn coordination, interactions, replay, and engine
+  outcomes behind a narrow Synvo-owned port.
+- The private Codex integration module alone knows App Server methods,
+  JSON-RPC, generated schemas, runner transport records, and vendor failures.
+- H5 and Lark adapters depend only on application facades and presentation
+  contracts; they never call the runner or App Server directly.
 - The Permissioned Lark Action Gateway controls all Lark reads and writes.
 - Model-generated decisions never bypass application policy.
 - The model never receives Lark credentials.
-- Critical Lark actions are executed by deterministic Java services.
+- Deterministic Java policy controls user authorization, configured workspace
+  boundaries, sandbox ceilings, manual interaction ownership and decision
+  narrowing, Phase 3 network denial, MCP allowlists, idempotency, and audit.
+  Safe Approve and Full Access remain unavailable: pinned App Server `0.148.0`
+  Auto-review failed the outside-root and read-only hard gates. Routine work
+  inside the selected sandbox runs without a click. Every stable
+  command-elevation request fails closed because its payload lacks enough
+  permission detail for deterministic authorization. Only independently
+  classifiable workspace-relative file and allowlisted MCP interactions may
+  receive a one-time H5 decision; never persist or broaden one into a command,
+  session, prefix, category, or cross-workspace grant.
+- Critical Lark actions are executed by deterministic Java services; Phase 3
+  adds no Lark business-resource operations.
 - Lark writes require the appropriate preview and confirmation.
 - Lark operations must declare their required scopes and token type.
 - Retried write operations must be idempotent.
 - Relevant operations must produce audit records.
 
-Keep the two MVP workflows explicit and independently testable.
+Keep the Phase 3 client mechanics separate from the first bounded Phase 4
+workplace workflow. App-Server-managed nested agent activity may occur inside
+one top-level task, but Synvo must not create its own multi-agent orchestrator.
 
 ## Simplicity Rules
 
@@ -129,8 +168,9 @@ Do not introduce the following without demonstrated need and explicit
 agreement:
 
 - Microservices
-- Multi-agent systems or agent swarms
-- A generic agent platform
+- A Synvo-owned multi-agent system or agent swarm
+- A Synvo-owned generic agent-building platform, custom agent harness, tool
+  registry, skill marketplace, or workflow builder
 - A separate vector database
 - Enterprise-wide knowledge ingestion
 - A message broker
@@ -145,6 +185,7 @@ Prefer:
 
 - Explicit code over framework magic
 - Clear domain boundaries over additional services
+- A deep Codex integration module over protocol-shaped pass-through layers
 - PostgreSQL over additional data infrastructure
 - Live Lark retrieval over premature knowledge ingestion
 - Focused interfaces over deep inheritance hierarchies
@@ -154,6 +195,25 @@ Prefer:
 
 - Never commit credentials, access tokens, refresh tokens, or secrets.
 - Store Lark tokens encrypted at rest.
+- Keep Codex credentials and App Server technical state in a runner-owned
+  persistent directory separate from task workspaces. Never read, print, copy,
+  test with, or expose real credential contents.
+- Resolve only configured workspace IDs to canonical runner roots. Do not
+  accept a host path from the browser, Lark message, model, or persisted engine
+  event.
+- Default new tasks to read-only and Ask for Approval. Safe Approve and
+  unrestricted Full Access are unavailable. The pinned Auto-reviewer can
+  approve a sandbox escape before Java sees a request. Routine work inside the
+  selected sandbox runs automatically; opaque command-elevation requests fail
+  closed. Genuine bounded file and allowlisted MCP decisions remain one-time
+  H5 interactions and never become session grants.
+- Keep agent-command network access disabled throughout Phase 3. Do not enable
+  App Server features classified below `Stable`, including generic
+  `request_user_input`, generic `request_permissions`, or the experimental
+  network proxy.
+- Never persist raw commands, command output, diffs, reasoning, file content,
+  configured paths, credentials, or unrestricted MCP payloads in Phase 3 task
+  or approval-audit tables.
 - Respect both Lark resource permissions and configured application scopes.
 - Enforce the configured Drive-folder boundary in backend code.
 - Do not follow links into Lark resources outside the configured knowledge scope.
@@ -171,8 +231,8 @@ Prefer:
 - Do not add a production dependency when the standard library or an existing
   dependency is sufficient.
 - When adding a dependency, explain its purpose and architectural impact.
-- Keep Codex and any model-provider integration behind the Synvo-owned engine
-  port.
+- Keep Codex and any model-provider integration behind the Synvo-owned
+  workspace-agent port and private integration module.
 - Keep Lark API details behind the Lark integration and Action Gateway modules.
 
 ## Git Policy

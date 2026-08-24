@@ -82,7 +82,7 @@ class ConversationController {
 		String ownerOpenId = sessionAccess.require(session).openId();
 		return runCoordinator.submit(new ConversationRequest(
 				body.requestId(), body.conversationId(), ownerOpenId, body.content(),
-				body.replaceFailedAssistantTurnId()));
+				body.replaceFailedAssistantTurnId(), body.reasoningEffort(), body.skillName()));
 	}
 
 	@GetMapping(value = "/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -160,7 +160,9 @@ class ConversationController {
 			@NotBlank @Size(max = 128) String requestId,
 			UUID conversationId,
 			@NotBlank @Size(max = 20_000) String content,
-			UUID replaceFailedAssistantTurnId
+			UUID replaceFailedAssistantTurnId,
+			@Size(max = 64) String reasoningEffort,
+			@Size(max = 200) String skillName
 	) {
 	}
 

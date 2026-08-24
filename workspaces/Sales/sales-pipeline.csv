@@ -1,0 +1,6 @@
+opportunity_id,account_name,segment,stage,product,amount_usd,probability_pct,target_close_date,next_step
+OPP-101,Example Retail Group,Mid-market,Discovery,Codex in Lark,48000,25,2026-09-18,"Confirm document workflow requirements"
+OPP-102,Demo Logistics Co,Enterprise,Evaluation,Research briefs,96000,50,2026-09-30,"Review synthetic security questionnaire"
+OPP-103,Sample Health Systems,Enterprise,Proposal,Codex in Lark,132000,65,2026-10-15,"Validate approval workflow"
+OPP-104,Fictional Media Studio,Small business,Negotiation,Reporting templates,24000,80,2026-09-05,"Agree synthetic implementation schedule"
+OPP-105,Placeholder Manufacturing,Mid-market,Discovery,Meeting execution,56000,20,2026-11-20,"Schedule fictional process review"

@@ -1,0 +1,11 @@
+{
+  "package": "@openai/codex",
+  "runtimeVersion": "0.148.0",
+  "cliVersionOutput": "codex-cli 0.148.0",
+  "model": "gpt-5.6-sol",
+  "transport": "stdio-jsonl",
+  "experimentalApi": false,
+  "schemaFile": "codex-app-server-0.148.0.schema.json",
+  "schemaSha256": "e5a20eb7211c21540a2d4e0106479285e13778e9c53d5837cfc735a71316a51e",
+  "schemaBytes": 527554
+}

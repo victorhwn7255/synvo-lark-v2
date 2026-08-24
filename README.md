@@ -1,37 +1,39 @@
 # Synvo AI Assistant
 
-Synvo is a Lark-native AI assistant for enterprise knowledge research and
-meeting-to-execution workflows. The repository is intentionally one React H5
-application, one Spring Boot modular monolith, and one PostgreSQL database.
+Synvo is a single-user, Lark-native client for OpenAI Codex. The repository is
+intentionally one React H5 application, one Spring Boot modular monolith, one
+PostgreSQL database, and one private Python runner sidecar.
 
-The current tracked baseline completes Phases 0 through 2.5:
+The current codebase includes the completed Phases 0 through 3. Phase 3,
+**Codex in Lark**, provides:
 
 ```text
 Lark Chat --\
-             +--> shared conversation boundary --> Synvo Agent Core --> model gateway
-React H5 ---/                +--> PostgreSQL lifecycle state
+             +--> application conversation boundary --> workspace-agent facade
+React H5 ---/                 |         |                    |
+                              |         +--> PostgreSQL      +--> private runner
+                              |                                  +--> pinned Codex App Server
+                              +--> encrypted Lark-token boundary       +--> OpenAI-hosted inference
 ```
 
-This baseline includes the secure Lark connection, encrypted H5 authorization,
-NVIDIA Nemotron model boundary, conversation memory, streaming lifecycle,
-evolving Lark responses, REST/SSE H5 conversation experience, and the Phase 2.5
-module-boundary hardening. Enterprise Knowledge Research, configured-Drive
-retrieval, citations, and Meeting-to-Execution are not implemented in this
-baseline; each requires its own approved tracked specification before
-implementation.
-
-The approved next direction is Phase 3, "Codex in Lark": it replaces the
-Nemotron model gateway entirely with the OpenAI Codex agent engine, hosted by
-one Python runner behind a Synvo-owned engine port. See
-[`docs/project-overview.md`](docs/project-overview.md) for the updated
-technology direction.
+H5 is the supported employee surface for the current Phase 3 rollout, with
+configured workspace/task management, rich activity, dynamic approvals,
+skills, MCP, goals, review, steering, and thread controls. The native Lark Chat
+integration remains in the architecture as a deferred companion surface, but
+is not part of Phase 3 closure verification. Spring Boot owns identity,
+authorization, workspace policy, audit, persistence, and the one-active-turn
+lease. The runner hides the pinned stable App Server protocol and local tool
+execution behind a narrow Synvo contract. Enterprise Knowledge Research,
+Drive retrieval, citations, Meeting-to-Execution, and the first opinionated
+Synvo workplace workflow remain outside Phase 3.
 
 ## Technology
 
 - Frontend: React 19, TypeScript, Vite, and Tailwind CSS
 - Backend: Java 21, Spring Boot 4, Maven Wrapper, and the official Lark Java SDK
-- Agent engine: NVIDIA Nemotron 3 Super 120B behind the Synvo model gateway
-  today; replaced by OpenAI Codex (app-server + official Python SDK) in Phase 3
+- Agent engine: exact `gpt-5.6-sol` through pinned `@openai/codex` /
+  `codex-cli 0.148.0` App Server; the private runner uses direct stable stdio
+  JSON-RPC and does not use the public Python SDK
 - Database: PostgreSQL 18 with Flyway migrations
 - Local runtime: Docker Compose
 
@@ -82,7 +84,7 @@ Use one Lark custom application for both capabilities:
 4. Enable the user scope `offline_access`; the H5 client requests only this
    scope so the backend can safely refresh Victor's user token on demand.
 5. Keep the application's availability and contact range restricted to the
-   intended pilot environment and Victor.
+   intended single-user environment and Victor.
 6. When creating the release version, set **Default feature** to **Web App** for
    both PC and mobile. This makes the Workplace tile open the H5 application;
    the Bot remains available through Messenger.
@@ -139,31 +141,81 @@ The browser receives only a Secure, HttpOnly Synvo session cookie; Lark access
 and refresh tokens are exchanged in Spring Boot and encrypted with AES-256-GCM
 before PostgreSQL persistence.
 
-### NVIDIA Nemotron settings
+## Codex runner and business workspaces
 
-These settings apply to the current baseline and are replaced when Phase 3
-lands the Codex engine. Model integration is disabled for an ordinary
-credential-free startup. Enable the completed Phase 2 model boundary with
-these local `.env` values:
+The ordinary stack keeps Codex disabled and remains credential-free. The
+enabled overlay registers three isolated synthetic business workspaces. The
+tracked defaults may be replaced with other explicitly approved local folders:
 
 ```dotenv
-SYNVO_MODEL_ENABLED=true
-SYNVO_MODEL_BASE_URL=https://integrate.api.nvidia.com/v1
-SYNVO_MODEL_NAME=nvidia/nemotron-3-super-120b-a12b
-SYNVO_MODEL_API_KEY=<nvidia-nim-api-key>
+SYNVO_CODEX_FINANCE_WORKSPACE_HOST_PATH=./workspaces/Finance
+SYNVO_CODEX_PRODUCTS_WORKSPACE_HOST_PATH=./workspaces/Products
+SYNVO_CODEX_SALES_WORKSPACE_HOST_PATH=./workspaces/Sales
+SYNVO_CODEX_ALLOWED_MCP_SERVERS=
 ```
 
-The model API key remains in `.env`, is passed only to the model adapter, and
-must never be committed or logged.
+H5 can select Finance, Products, or Sales for each new task. The retained
+native Lark Chat integration defaults to Products if it is reactivated for
+future verification. Every task remains permanently bound to its selected
+workspace, and the runner receives only the three explicit folder mounts.
 
-Start the stack and inspect the safe connection state:
+Validate and build the enabled topology with both Compose files:
 
 ```bash
-docker compose up --detach --build --wait
-docker compose logs --follow backend
+docker compose -f compose.yaml -f compose.codex.yaml config --quiet
+docker compose -f compose.yaml -f compose.codex.yaml build
 ```
 
-### Temporary HTTPS access for H5
+Codex authentication is interactive and subscription-based. It is stored in
+the dedicated `synvo_codex_credentials` volume, completely separate from the
+task workspaces and PostgreSQL. There is no OpenAI API-key path. Never copy,
+print, inspect, or commit the credential files; use the pinned Codex CLI inside
+the runner image to complete login when requested during controlled live
+verification.
+
+The verified device-login command is:
+
+```bash
+docker compose -f compose.yaml -f compose.codex.yaml run --rm --no-deps \
+  --entrypoint /opt/codex/node_modules/.bin/codex codex-runner \
+  login --device-auth
+```
+
+Never share or record the device code. To exercise the tracked harmless MCP
+vertical slice, first set `SYNVO_CODEX_ALLOWED_MCP_SERVERS=synvo_safe_fixture`,
+then register only the included bounded fixture in the same isolated Codex
+home:
+
+```bash
+docker compose -f compose.yaml -f compose.codex.yaml run --rm --no-deps \
+  --entrypoint /opt/codex/node_modules/.bin/codex codex-runner \
+  mcp add synvo_safe_fixture \
+  --env SYNVO_MCP_FIXTURE_ROOT=/var/lib/synvo-mcp-fixture \
+  -- python3 /app/fixtures/safe_mcp_server.py
+```
+
+The fixture has one fixed read-only response and one fixed workspace marker.
+The marker cannot be written until the stable MCP elicitation is accepted in
+H5. Do not register unreviewed or Lark-capable MCP servers in Phase 3; the
+runner fails startup when configured MCP inventory exceeds the deployment
+allowlist or lacks a safe risk classification.
+
+Start the enabled stack and inspect only its safe status endpoints:
+
+```bash
+docker compose -f compose.yaml -f compose.codex.yaml up --detach --wait
+curl -fsS http://127.0.0.1:8080/actuator/health
+curl -fsS http://127.0.0.1:5173/api/status
+```
+
+The runner is exposed only to the private Compose network. Agent commands have
+no network access; read-only tasks cannot modify the workspace, and
+workspace-write tasks can write only inside the configured mount. The base
+stack still contains the disabled Phase 2 Nemotron adapter until controlled
+Codex parity is verified, as required by the Phase 3 specification. Do not
+enable that legacy model path for Phase 3 verification.
+
+## Temporary HTTPS access for H5
 
 The bot's outbound WebSocket does not need a public callback URL. The H5 page
 does need an HTTPS URL that Lark can open. The verified local tunnel client is
@@ -194,25 +246,32 @@ Do not save the tunnel URL or ngrok credentials in the repository. Stop ngrok
 with `Ctrl+C` after the H5 test; the ordinary Compose stack continues to work
 without it.
 
-## Current live smoke test
+## Controlled Phase 3 live verification
 
-With the developer-console settings and local secrets configured:
+With the enabled Codex overlay, developer-console settings, interactive Codex
+login, and local Lark secrets configured:
 
-1. Confirm the backend reports the bot WebSocket as connected.
-2. Send a standalone text direct message from Victor and receive exactly one
-   evolving assistant response without quoted reply decoration. Then use Lark's
-   Reply action once and confirm the explicit reply anchor is preserved.
-3. Confirm a group message and a message from a non-pilot account receive no
-   reply.
-4. Open the H5 application inside Lark and authorize as Victor.
-5. Confirm the page independently reports the bot connection and Victor's user
-   authorization.
-6. Send one prompt from Lark Chat and one from H5. Confirm both use the shared
-   waiting, streaming, and completed lifecycle without duplicate turns.
-7. Restart the backend and confirm the authorized connection and persisted
-   conversation history remain available.
-8. Inspect backend/container logs for credentials, tokens, or message content;
-   none should be present.
+1. Confirm the runner reports exact App Server `0.148.0`, model
+   `gpt-5.6-sol`, authenticated account state, and no model reroute.
+2. Complete one H5 read-only document/data analysis and one H5
+   workspace-write document/data task. Routine work inside the selected
+   sandbox should require no approval. Confirm deterministic artifact
+   validation and a bounded workspace-relative change and validation summary;
+   exercise a one-time H5 decision separately through a bounded file or the
+   harmless allowlisted MCP fixture. Coding and software-test tasks are
+   deferred.
+3. Exercise steering, stop, retry, task resume, one configured skill, the
+   harmless allowlisted MCP fixture, goals, and one supported review.
+4. Start one task from Victor's native Lark DM, open its safe H5 interaction
+   handoff, resolve it in H5, and receive the final result in the originating
+   evolving Chat response. Send the exact `/stop` command during a separate
+   active Chat task and confirm that it cancels without starting another turn.
+   Group messages and messages from any other user must still be ignored.
+5. Restart the runner and backend and confirm terminal recovery, persisted
+   task mappings, and browser refresh reconnect behavior.
+6. Perform only the count/redaction audit defined by the Phase 3 specification;
+   never print logs containing message bodies, prompts, credentials, raw output,
+   diffs, or enterprise content.
 
 The live test is manual and must never run in the ordinary automated suite.
 

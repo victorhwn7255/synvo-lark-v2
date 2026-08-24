@@ -18,8 +18,57 @@ class ArchitectureBoundaryTests {
 	void agentApplicationDoesNotDependOnSurfaceAdapters() throws IOException {
 		assertSourcesDoNotContain(
 				path -> isUnder(path, "synvo/agent"),
-				List.of("synvo.api.", "synvo.lark.", "com.lark.oapi"),
+				List.of(
+						"synvo.api.",
+						"synvo.lark.",
+						"synvo.integration.",
+						"com.lark.oapi",
+						"JSON-RPC",
+						"thread/start",
+						"turn/start"),
 				"The agent application must not depend on H5 or Lark surface adapters");
+	}
+
+	@Test
+	void workspaceAgentBoundaryHidesIntegrationAndSurfaceDetails() throws IOException {
+		assertSourcesDoNotContain(
+				path -> isUnder(path, "synvo/workspaceagent"),
+				List.of(
+						"synvo.api.",
+						"synvo.lark.",
+						"synvo.persistence.",
+						"synvo.integration.",
+						"com.lark.oapi",
+						"JSON-RPC",
+						"thread/start",
+						"turn/start",
+						"engineRef"),
+				"The workspace-agent module must expose only Synvo-owned concepts");
+	}
+
+	@Test
+	void surfaceAdaptersCannotReachTheCodexIntegration() throws IOException {
+		assertSourcesDoNotContain(
+				path -> isUnder(path, "synvo/api") || isUnder(path, "synvo/lark"),
+				List.of(
+						"synvo.integration.codex",
+						"App Server",
+						"JSON-RPC",
+						"thread/start",
+						"turn/start",
+						"engineRef"),
+				"REST/SSE and Lark adapters must use the workspace-agent facade only");
+	}
+
+	@Test
+	void rawCodexTransportKnowledgeStaysInsideThePrivateAdapter() throws IOException {
+		assertSourcesDoNotContain(
+				path -> !isUnder(path, "synvo/integration/codex"),
+				List.of(
+						"/v1/operations/",
+						"/v1/tasks/",
+						"engineRef"),
+				"Runner wire records must stay inside the private Codex adapter");
 	}
 
 	@Test
@@ -32,6 +81,10 @@ class ArchitectureBoundaryTests {
 				"Lark Chat must not invoke Agent Core orchestration directly");
 		assertFalse(larkSource.contains("AgentRuntimeProperties"),
 				"Lark Chat must not own a separate conversation timeout policy");
+		assertTrue(larkSource.contains("WorkspaceConversationAgent"),
+				"Lark Chat task handoffs must use the narrow workspace-agent boundary");
+		assertFalse(larkSource.contains("WorkspaceAgentFacade"),
+				"Lark Chat must not depend on the concrete workspace-agent implementation");
 
 		Path controller = SOURCE_ROOT.resolve("synvo/api/ConversationController.java");
 		String controllerSource = Files.readString(controller);

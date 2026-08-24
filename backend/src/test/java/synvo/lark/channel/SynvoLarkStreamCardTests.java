@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import synvo.agent.AgentLifecycleEvent.ActionHandoff;
+import synvo.lark.channel.LarkChannelClient.TaskHandoff;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -19,6 +21,50 @@ class SynvoLarkStreamCardTests {
 		assertEquals("2.0", card.get("schema"));
 		assertEquals(SynvoLarkStreamCard.WAITING_TEXT, markdownContent(card));
 		assertEquals(SynvoLarkStreamCard.WAITING_TEXT, summaryContent(card));
+	}
+
+	@Test
+	void taskHandoffShowsTheOwningWorkspaceAndModeWithoutAnInteractionClaim() {
+		FakeCardController controller = new FakeCardController();
+		SynvoLarkStreamCard writer = new SynvoLarkStreamCard(controller);
+
+		writer.setContent("No file was changed.");
+		writer.showTaskHandoff(
+				new TaskHandoff("Products", "Read Only"),
+				"https://synvo.example/h5?codexTask=safe");
+
+		String content = markdownContent(controller.updates.getLast());
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Continue this task in H5"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Products"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Read Only"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Open this task in H5"));
+		org.junit.jupiter.api.Assertions.assertFalse(content.contains("Approval required"));
+	}
+
+	@Test
+	void realInteractionTemporarilyTakesPrecedenceOverTheTaskContinuation() {
+		FakeCardController controller = new FakeCardController();
+		SynvoLarkStreamCard writer = new SynvoLarkStreamCard(controller);
+		writer.showTaskHandoff(
+				new TaskHandoff("Products", "Read Only"),
+				"https://synvo.example/h5?codexTask=task");
+		writer.showActionRequired(new ActionHandoff(
+				java.util.UUID.randomUUID(),
+				java.util.UUID.randomUUID(),
+				"file change",
+				"Products",
+				"Create one report",
+				"workspace files"),
+				"https://synvo.example/h5?codexTask=task&codexInteraction=interaction");
+
+		org.junit.jupiter.api.Assertions.assertTrue(
+				markdownContent(controller.updates.getLast()).contains("Approval required"));
+
+		writer.clearActionRequired();
+
+		String restored = markdownContent(controller.updates.getLast());
+		org.junit.jupiter.api.Assertions.assertTrue(restored.contains("Continue this task in H5"));
+		org.junit.jupiter.api.Assertions.assertFalse(restored.contains("Approval required"));
 	}
 
 	@Test
@@ -46,6 +92,32 @@ class SynvoLarkStreamCardTests {
 		Map<String, Object> terminal = controller.updates.get(controller.updates.size() - 1);
 		assertEquals("I couldn’t complete that response. Please try again.", markdownContent(terminal));
 		assertFalse(terminal.containsKey("header"));
+	}
+
+	@Test
+	void interactionHandoffShowsOnlySafeSummaryAndAnOwningH5Link() {
+		FakeCardController controller = new FakeCardController();
+		SynvoLarkStreamCard writer = new SynvoLarkStreamCard(controller);
+		ActionHandoff handoff = new ActionHandoff(
+				java.util.UUID.randomUUID(),
+				java.util.UUID.randomUUID(),
+				"shell command",
+				"Pilot workspace",
+				"Run focused tests",
+				"workspace command");
+
+		writer.showActionRequired(handoff, "https://synvo.example/h5?codexTask=safe");
+
+		String content = markdownContent(controller.updates.getLast());
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Approval required"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("shell command"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Pilot workspace"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Run focused tests"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("workspace command"));
+		org.junit.jupiter.api.Assertions.assertTrue(content.contains("Open in H5"));
+		writer.clearActionRequired();
+		org.junit.jupiter.api.Assertions.assertFalse(
+				markdownContent(controller.updates.getLast()).contains("Approval required"));
 	}
 
 	@SuppressWarnings("unchecked")
