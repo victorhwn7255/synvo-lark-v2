@@ -10,10 +10,15 @@ from synvo_runner.engine import (
     CodexEngine,
     EngineBusy,
     EngineFailure,
+    EngineHealth,
     RunMode,
     Workspace,
 )
-from synvo_runner.protocol import ServerRequest
+from synvo_runner.protocol import (
+    RunnerProtocolError,
+    RunnerUnavailable,
+    ServerRequest,
+)
 
 
 class FakeClient:
@@ -27,6 +32,8 @@ class FakeClient:
         self.paginate_models = False
         self.paginate_features = False
         self.thread_status = "idle"
+        self.reject_rate_limits = False
+        self.reject_health_probe = False
         self.loaded_thread_ids = ["engine-thread-1"]
         self.persisted_thread_ids = ["engine-thread-1"]
         self.goal_value: dict[str, Any] | None = {
@@ -71,6 +78,8 @@ class FakeClient:
         safe_params = dict(params or {})
         self.calls.append((method, safe_params))
         if method == "model/list":
+            if self.reject_health_probe and safe_params.get("includeHidden") is False:
+                raise RunnerUnavailable("stale App Server")
             if self.paginate_models and safe_params.get("cursor") is None:
                 return {
                     "data": [
@@ -173,6 +182,8 @@ class FakeClient:
                 "requiresOpenaiAuth": True,
             }
         if method == "account/rateLimits/read":
+            if self.reject_rate_limits:
+                raise RunnerProtocolError("optional rate limits unavailable")
             return {
                 "rateLimits": {
                     "planType": "pro",
@@ -233,7 +244,9 @@ class FakeClient:
         return self.request_handler(request)
 
     def fail(self) -> None:
-        self.failure_handler(RuntimeError("raw provider detail must not escape"))
+        self.failure_handler(
+            RunnerUnavailable("raw provider detail must not escape")
+        )
 
 
 class CodexEngineTest(unittest.TestCase):
@@ -654,6 +667,94 @@ class CodexEngineTest(unittest.TestCase):
         self.assertNotIn("raw provider detail", str(terminal))
         self.assertFalse(self.engine.ready())
 
+    def test_live_readiness_detects_a_stale_runtime_instead_of_trusting_startup(self) -> None:
+        client = FakeClient()
+        engine = CodexEngine(
+            client=client,
+            installed_version="0.148.0",
+            capability_policy=CapabilityPolicy(
+                runtime_version="0.148.0", required_model="gpt-5.6-sol"
+            ),
+            allowed_mcp_servers={"allowed_fixture"},
+            health_probe_interval_seconds=0,
+        )
+        engine.start()
+        client.reject_health_probe = True
+
+        self.assertEqual(EngineHealth.UNAVAILABLE.value, engine.health())
+        self.assertFalse(engine.ready())
+        engine.close()
+
+    def test_transport_failure_recovers_once_without_replaying_the_active_turn(self) -> None:
+        original = FakeClient()
+        replacement = FakeClient()
+        created: list[FakeClient] = []
+
+        def replace() -> FakeClient:
+            created.append(replacement)
+            return replacement
+
+        engine = CodexEngine(
+            client=original,
+            client_factory=replace,
+            installed_version="0.148.0",
+            capability_policy=CapabilityPolicy(
+                runtime_version="0.148.0", required_model="gpt-5.6-sol"
+            ),
+            allowed_mcp_servers={"allowed_fixture"},
+            recovery_attempts=1,
+            recovery_backoff_seconds=(0,),
+        )
+        engine.start()
+        operation = engine.start_turn(
+            "engine-thread-1",
+            Workspace("workspace-1", "/workspace/private"),
+            RunMode.READ_ONLY,
+            "Inspect",
+            "low",
+        )
+        self._wait_for_client_call(original, "turn/start")
+
+        original.fail()
+        original.fail()
+
+        self._wait_for_engine_health(engine, EngineHealth.READY)
+        self.assertEqual(1, len(created))
+        self.assertTrue(original.closed)
+        self.assertTrue(replacement.started)
+        self.assertFalse(
+            any(method == "turn/start" for method, _params in replacement.calls)
+        )
+        terminal = [event for event in operation.events(-1) if event["terminal"]]
+        self.assertEqual(1, len(terminal))
+        self.assertEqual("runnerUnavailable", terminal[0]["payload"]["status"])
+        engine.close()
+
+    def test_incompatible_replacement_remains_fail_closed_after_bounded_attempt(self) -> None:
+        original = FakeClient()
+        incompatible = FakeClient()
+        incompatible.mcp_rows[0]["tools"]["read_marker"].pop("annotations")
+        engine = CodexEngine(
+            client=original,
+            client_factory=lambda: incompatible,
+            installed_version="0.148.0",
+            capability_policy=CapabilityPolicy(
+                runtime_version="0.148.0", required_model="gpt-5.6-sol"
+            ),
+            allowed_mcp_servers={"allowed_fixture"},
+            recovery_attempts=1,
+            recovery_backoff_seconds=(0,),
+            recovery_cooldown_seconds=60,
+        )
+        engine.start()
+
+        original.fail()
+
+        self._wait_for_engine_health(engine, EngineHealth.PROTOCOL_INCOMPATIBLE)
+        self.assertTrue(incompatible.closed)
+        self.assertFalse(engine.ready())
+        engine.close()
+
     def test_account_skill_and_mcp_snapshots_are_sanitized(self) -> None:
         account = self.engine.account()
         skills = self.engine.skills(self.workspace)
@@ -665,6 +766,17 @@ class CodexEngineTest(unittest.TestCase):
         self.assertNotIn("/workspace/private", str(skills))
         self.assertEqual("allowed_fixture", mcp[0]["name"])
 
+    def test_account_remains_ready_when_optional_rate_limits_are_rejected(self) -> None:
+        self.client.reject_rate_limits = True
+
+        account = self.engine.account()
+
+        self.assertEqual("chatgpt", account["authentication"])
+        self.assertFalse(account["requiresAuthentication"])
+        self.assertIsNone(account["plan"])
+        self.assertIsNone(account["usedPercent"])
+        self.assertIsNone(account["resetsAt"])
+
     def _wait_for_call(self, method: str) -> None:
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
@@ -672,6 +784,24 @@ class CodexEngineTest(unittest.TestCase):
                 return
             time.sleep(0.005)
         self.fail(f"missing {method} call")
+
+    def _wait_for_client_call(self, client: FakeClient, method: str) -> None:
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            if any(name == method for name, _params in client.calls):
+                return
+            time.sleep(0.005)
+        self.fail(f"missing {method} call")
+
+    def _wait_for_engine_health(
+        self, engine: CodexEngine, expected: EngineHealth
+    ) -> None:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if engine.health() == expected.value:
+                return
+            time.sleep(0.005)
+        self.fail(f"engine did not reach {expected.value}")
 
 
 if __name__ == "__main__":

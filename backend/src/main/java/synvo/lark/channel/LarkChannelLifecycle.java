@@ -21,17 +21,22 @@ final class LarkChannelLifecycle {
 
 	private static final Logger log = LoggerFactory.getLogger(LarkChannelLifecycle.class);
 	private static final Duration RECONNECT_STALL_TIMEOUT = Duration.ofSeconds(30);
+	private static final Duration RECOVERY_INITIAL_DELAY = Duration.ofSeconds(5);
+	private static final Duration RECOVERY_MAX_DELAY = Duration.ofMinutes(1);
 
 	private final LarkChannelClient channelClient;
 	private final LarkDirectMessageHandler messageHandler;
 	private final LarkConnectionStatus connectionStatus;
 	private final ScheduledExecutorService recoveryScheduler;
 	private final Duration reconnectStallTimeout;
+	private final Duration recoveryInitialDelay;
+	private final Duration recoveryMaxDelay;
 	private final Object recoveryMonitor = new Object();
 
 	private volatile boolean shuttingDown;
 	private ScheduledFuture<?> recoveryTask;
 	private boolean recovering;
+	private int recoveryAttempt;
 
 	@Autowired
 	LarkChannelLifecycle(
@@ -43,7 +48,9 @@ final class LarkChannelLifecycle {
 				messageHandler,
 				connectionStatus,
 				newRecoveryScheduler(),
-				RECONNECT_STALL_TIMEOUT);
+				RECONNECT_STALL_TIMEOUT,
+				RECOVERY_INITIAL_DELAY,
+				RECOVERY_MAX_DELAY);
 	}
 
 	LarkChannelLifecycle(
@@ -52,11 +59,31 @@ final class LarkChannelLifecycle {
 			LarkConnectionStatus connectionStatus,
 			ScheduledExecutorService recoveryScheduler,
 			Duration reconnectStallTimeout) {
+		this(
+				channelClient,
+				messageHandler,
+				connectionStatus,
+				recoveryScheduler,
+				reconnectStallTimeout,
+				RECOVERY_INITIAL_DELAY,
+				RECOVERY_MAX_DELAY);
+	}
+
+	LarkChannelLifecycle(
+			LarkChannelClient channelClient,
+			LarkDirectMessageHandler messageHandler,
+			LarkConnectionStatus connectionStatus,
+			ScheduledExecutorService recoveryScheduler,
+			Duration reconnectStallTimeout,
+			Duration recoveryInitialDelay,
+			Duration recoveryMaxDelay) {
 		this.channelClient = channelClient;
 		this.messageHandler = messageHandler;
 		this.connectionStatus = connectionStatus;
 		this.recoveryScheduler = recoveryScheduler;
 		this.reconnectStallTimeout = reconnectStallTimeout;
+		this.recoveryInitialDelay = recoveryInitialDelay;
+		this.recoveryMaxDelay = recoveryMaxDelay;
 	}
 
 	@EventListener(ApplicationReadyEvent.class)
@@ -71,9 +98,11 @@ final class LarkChannelLifecycle {
 			if (failure != null) {
 				transition(LarkConnectionState.FAILED);
 				log.warn("Lark WebSocket connection failed ({})", failureType(failure));
+				scheduleFailedRecovery();
 				return;
 			}
 			messageHandler.setBotOpenId(botProfile.openId());
+			resetRecovery();
 			transition(LarkConnectionState.CONNECTED);
 		});
 	}
@@ -101,25 +130,47 @@ final class LarkChannelLifecycle {
 				scheduleRecovery();
 			}
 			case RECONNECTED -> {
-				cancelRecovery();
+				resetRecovery();
 				transition(LarkConnectionState.CONNECTED);
 			}
 			case ERROR -> {
 				cancelRecovery();
 				transition(LarkConnectionState.FAILED);
 				log.warn("The Lark channel reported an error");
+				scheduleFailedRecovery();
 			}
 		}
 	}
 
 	private void scheduleRecovery() {
+		scheduleRecovery(reconnectStallTimeout);
+	}
+
+	private void scheduleRecovery(Duration delay) {
 		synchronized (recoveryMonitor) {
 			if (shuttingDown || recovering || recoveryTask != null) {
 				return;
 			}
 			recoveryTask = recoveryScheduler.schedule(
 					this::recoverIfStalled,
-					reconnectStallTimeout.toMillis(),
+					delay.toMillis(),
+					TimeUnit.MILLISECONDS);
+		}
+	}
+
+	private void scheduleFailedRecovery() {
+		synchronized (recoveryMonitor) {
+			if (shuttingDown || recovering || recoveryTask != null) {
+				return;
+			}
+			long multiplier = 1L << Math.min(recoveryAttempt, 6);
+			long delayMillis = Math.min(
+					recoveryInitialDelay.toMillis() * multiplier,
+					recoveryMaxDelay.toMillis());
+			recoveryAttempt++;
+			recoveryTask = recoveryScheduler.schedule(
+					this::recoverIfStalled,
+					delayMillis,
 					TimeUnit.MILLISECONDS);
 		}
 	}
@@ -129,13 +180,15 @@ final class LarkChannelLifecycle {
 			recoveryTask = null;
 			if (shuttingDown
 					|| recovering
-					|| connectionStatus.snapshot().state() != LarkConnectionState.RECONNECTING) {
+					|| (connectionStatus.snapshot().state() != LarkConnectionState.RECONNECTING
+							&& connectionStatus.snapshot().state() != LarkConnectionState.FAILED)) {
 				return;
 			}
 			recovering = true;
 		}
 
 		log.warn("Lark WebSocket reconnect stalled; replacing the channel transport");
+		transition(LarkConnectionState.RECONNECTING);
 		channelClient.restart().whenComplete((botProfile, failure) -> {
 			synchronized (recoveryMonitor) {
 				recovering = false;
@@ -146,9 +199,11 @@ final class LarkChannelLifecycle {
 			if (failure != null) {
 				transition(LarkConnectionState.FAILED);
 				log.warn("Lark WebSocket recovery failed ({})", failureType(failure));
+				scheduleFailedRecovery();
 				return;
 			}
 			messageHandler.setBotOpenId(botProfile.openId());
+			resetRecovery();
 			transition(LarkConnectionState.CONNECTED);
 		});
 	}
@@ -159,6 +214,13 @@ final class LarkChannelLifecycle {
 				recoveryTask.cancel(false);
 				recoveryTask = null;
 			}
+		}
+	}
+
+	private void resetRecovery() {
+		synchronized (recoveryMonitor) {
+			cancelRecovery();
+			recoveryAttempt = 0;
 		}
 	}
 

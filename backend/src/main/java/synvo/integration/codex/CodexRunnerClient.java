@@ -63,7 +63,9 @@ public final class CodexRunnerClient implements WorkspaceAgentEngine {
 			JsonNode health = request("GET", "/health", null, requestTimeout, 200);
 			return switch (text(health, "state")) {
 				case "ready" -> EngineStatus.READY;
+				case "recovering" -> EngineStatus.RECOVERING;
 				case "disabled" -> EngineStatus.DISABLED;
+				case "protocolIncompatible" -> EngineStatus.PROTOCOL_INCOMPATIBLE;
 				default -> EngineStatus.UNAVAILABLE;
 			};
 		}

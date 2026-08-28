@@ -9,12 +9,18 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from .capabilities import CapabilityPolicy, RuntimeFeature
 from .interactions import InteractionRegistry
 from .normalization import EventNormalizer, ProtocolIncompatibility, bounded_text
-from .protocol import EventBuffer, RunnerError, ServerRequest
+from .protocol import (
+    EventBuffer,
+    RunnerError,
+    RunnerProtocolError,
+    RunnerUnavailable,
+    ServerRequest,
+)
 
 
 _RESPONSE_DEVELOPER_INSTRUCTIONS = (
@@ -102,6 +108,13 @@ class EngineBusy(EngineFailure):
 class RunMode(str, Enum):
     READ_ONLY = "readOnly"
     WORKSPACE_WRITE = "workspaceWrite"
+
+
+class EngineHealth(str, Enum):
+    READY = "ready"
+    RECOVERING = "recovering"
+    PROTOCOL_INCOMPATIBLE = "protocolIncompatible"
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -297,6 +310,11 @@ class CodexEngine:
     """Expose tasks and turns while hiding all App Server protocol mechanics."""
 
     MODEL = "gpt-5.6-sol"
+    DEFAULT_HEALTH_PROBE_INTERVAL_SECONDS = 15.0
+    DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS = 1.0
+    DEFAULT_RECOVERY_ATTEMPTS = 3
+    DEFAULT_RECOVERY_BACKOFF_SECONDS = (0.25, 1.0, 2.0)
+    DEFAULT_RECOVERY_COOLDOWN_SECONDS = 30.0
 
     def __init__(
         self,
@@ -308,8 +326,23 @@ class CodexEngine:
         interaction_timeout_seconds: float = 300,
         max_events: int = 1_000,
         allowed_mcp_servers: set[str] | None = None,
+        client_factory: Callable[[], EngineClient] | None = None,
+        health_probe_interval_seconds: float = DEFAULT_HEALTH_PROBE_INTERVAL_SECONDS,
+        health_probe_timeout_seconds: float = DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS,
+        recovery_attempts: int = DEFAULT_RECOVERY_ATTEMPTS,
+        recovery_backoff_seconds: tuple[float, ...] = DEFAULT_RECOVERY_BACKOFF_SECONDS,
+        recovery_cooldown_seconds: float = DEFAULT_RECOVERY_COOLDOWN_SECONDS,
     ) -> None:
+        if health_probe_interval_seconds < 0 or health_probe_timeout_seconds <= 0:
+            raise ValueError("health probe timing is invalid")
+        if recovery_attempts < 1 or len(recovery_backoff_seconds) < recovery_attempts:
+            raise ValueError("recovery policy is invalid")
+        if any(delay < 0 for delay in recovery_backoff_seconds):
+            raise ValueError("recovery backoff is invalid")
+        if recovery_cooldown_seconds < 0:
+            raise ValueError("recovery cooldown is invalid")
         self._client = client
+        self._client_factory = client_factory
         self._installed_version = installed_version
         self._capability_policy = capability_policy
         self._turn_timeout = turn_timeout_seconds
@@ -326,22 +359,38 @@ class CodexEngine:
         self._goal_snapshots: dict[str, dict[str, Any]] = {}
         self._capability_snapshot: dict[str, Any] | None = None
         self._closed = False
+        self._shutdown = False
+        self._health_probe_interval = health_probe_interval_seconds
+        self._health_probe_timeout = health_probe_timeout_seconds
+        self._recovery_attempts = recovery_attempts
+        self._recovery_backoff = recovery_backoff_seconds
+        self._recovery_cooldown = recovery_cooldown_seconds
+        self._health_state = EngineHealth.UNAVAILABLE
+        self._last_protocol_success = 0.0
+        self._next_recovery_at = 0.0
+        self._state_monitor = threading.Lock()
+        self._health_probe_lock = threading.Lock()
+        self._recovery_thread: threading.Thread | None = None
+        self._shutdown_event = threading.Event()
 
     def start(self) -> None:
-        self._client.on_notification(self._on_notification)
-        self._client.on_server_request(self._on_server_request)
-        self._client.on_failure(self._on_failure)
-        self._client.start()
+        client = self._client
+        self._bind_client(client)
+        client.start()
         try:
-            self._start_verified()
+            snapshot = self._verified_snapshot(client)
         except Exception:
             self._closed = True
-            self._client.close()
+            client.close()
             raise
+        with self._state_monitor:
+            self._capability_snapshot = snapshot
+            self._last_protocol_success = time.monotonic()
+            self._health_state = EngineHealth.READY
 
-    def _start_verified(self) -> None:
+    def _verified_snapshot(self, client: EngineClient) -> dict[str, Any]:
         model_rows = self._paged_rows(
-            "model/list", {"includeHidden": True}, page_size=100
+            client, "model/list", {"includeHidden": True}, page_size=100
         )
         model_ids = [
             row.get("id") or row.get("model")
@@ -360,7 +409,7 @@ class CodexEngine:
         feature_rows_list: list[RuntimeFeature] = []
         feature_names: set[str] = set()
         for row in self._paged_rows(
-            "experimentalFeature/list", {}, page_size=200
+            client, "experimentalFeature/list", {}, page_size=200
         ):
             name = row.get("name")
             stage = row.get("stage")
@@ -399,8 +448,8 @@ class CodexEngine:
         ]
         if not efforts:
             raise EngineFailure("required model exposes no reasoning efforts")
-        self._verify_mcp_configuration()
-        self._capability_snapshot = {
+        self._verify_mcp_configuration(client)
+        return {
             "runtimeVersion": report.runtime_version,
             "model": report.model,
             "reasoningEfforts": efforts,
@@ -413,6 +462,7 @@ class CodexEngine:
 
     def _paged_rows(
         self,
+        client: EngineClient,
         method: str,
         params: Mapping[str, Any],
         *,
@@ -425,7 +475,11 @@ class CodexEngine:
             request_params = {**params, "limit": page_size}
             if cursor is not None:
                 request_params["cursor"] = cursor
-            result = self._client.request(method, request_params)
+            result = (
+                client.request(method, request_params)
+                if client is not None
+                else self._request(method, request_params)
+            )
             page_rows = result.get("data")
             if not isinstance(page_rows, list) or not all(
                 isinstance(row, dict) for row in page_rows
@@ -445,12 +499,12 @@ class CodexEngine:
             cursor = next_cursor
         raise EngineFailure("runtime inventory exceeds the supported page bound")
 
-    def _verify_mcp_configuration(self) -> None:
+    def _verify_mcp_configuration(self, client: EngineClient) -> None:
         allowed = self._allowed_mcp_servers or set()
         cursor: str | None = None
         pages = 0
         while True:
-            result = self._client.request(
+            result = client.request(
                 "mcpServerStatus/list",
                 {
                     "threadId": None,
@@ -497,18 +551,182 @@ class CodexEngine:
             cursor = next_cursor
 
     def close(self) -> None:
-        if self._closed:
+        with self._state_monitor:
+            if self._shutdown:
+                return
+            self._shutdown = True
+            self._closed = True
+            self._health_state = EngineHealth.UNAVAILABLE
+            client = self._client
+            recovery_thread = self._recovery_thread
+        self._shutdown_event.set()
+        self._terminalize_active("stopped")
+        client.close()
+        if recovery_thread is not None and recovery_thread is not threading.current_thread():
+            recovery_thread.join(timeout=5)
+
+    def ready(self) -> bool:
+        return self.health() == EngineHealth.READY.value
+
+    def health(self) -> str:
+        with self._state_monitor:
+            state = self._health_state
+            stale = (
+                not self._closed
+                and self._capability_snapshot is not None
+                and time.monotonic() - self._last_protocol_success
+                >= self._health_probe_interval
+            )
+        if state == EngineHealth.READY and stale:
+            self._probe_health()
+        elif state != EngineHealth.READY:
+            self._start_recovery()
+        with self._state_monitor:
+            return self._health_state.value
+
+    def _probe_health(self) -> None:
+        if not self._health_probe_lock.acquire(blocking=False):
             return
-        self._closed = True
+        try:
+            with self._state_monitor:
+                if self._shutdown or self._closed:
+                    return
+                client = self._client
+            try:
+                result = client.request(
+                    "model/list",
+                    {"includeHidden": False, "limit": 1},
+                    timeout_seconds=self._health_probe_timeout,
+                )
+                if not isinstance(result.get("data"), list):
+                    raise RunnerProtocolError("App Server health response is invalid")
+            except (RunnerError, EngineFailure) as error:
+                self._runtime_failed(client, error)
+                return
+            self._record_success(client)
+        finally:
+            self._health_probe_lock.release()
+
+    def _request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        with self._state_monitor:
+            if self._shutdown or self._closed:
+                raise RunnerUnavailable("App Server is recovering")
+            client = self._client
+        try:
+            result = client.request(method, params, timeout_seconds=timeout_seconds)
+        except RunnerUnavailable as error:
+            self._runtime_failed(client, error)
+            raise
+        self._record_success(client)
+        return result
+
+    def _record_success(self, client: EngineClient) -> None:
+        with self._state_monitor:
+            if not self._shutdown and self._client is client and not self._closed:
+                self._last_protocol_success = time.monotonic()
+                self._health_state = EngineHealth.READY
+
+    def _bind_client(self, client: EngineClient) -> None:
+        client.on_notification(
+            lambda method, params: self._on_notification_from(client, method, params)
+        )
+        client.on_server_request(
+            lambda request: self._on_server_request_from(client, request)
+        )
+        client.on_failure(lambda error: self._runtime_failed(client, error))
+
+    def _runtime_failed(self, client: EngineClient, error: Exception) -> None:
+        with self._state_monitor:
+            if self._shutdown or self._client is not client or self._closed:
+                return
+            self._closed = True
+            self._health_state = self._failure_health(error)
+        self._terminalize_active("runnerUnavailable")
+        self._start_recovery()
+
+    def _terminalize_active(self, status: str) -> None:
         with self._lock:
             operation = self._active
         if operation is not None and not operation.terminal:
             self._interactions.cancel_operation(operation.operation_id)
-            operation.publish("turn_completed", {"status": "stopped"}, terminal=True)
-        self._client.close()
+            operation.publish("turn_completed", {"status": status}, terminal=True)
 
-    def ready(self) -> bool:
-        return not self._closed and self._capability_snapshot is not None
+    def _start_recovery(self) -> None:
+        with self._state_monitor:
+            if (
+                self._shutdown
+                or not self._closed
+                or self._client_factory is None
+                or self._recovery_thread is not None
+                or time.monotonic() < self._next_recovery_at
+            ):
+                return
+            self._health_state = EngineHealth.RECOVERING
+            recovery_thread = threading.Thread(
+                target=self._recover,
+                name="codex-app-server-recovery",
+                daemon=True,
+            )
+            self._recovery_thread = recovery_thread
+        recovery_thread.start()
+
+    def _recover(self) -> None:
+        last_failure: Exception = RunnerUnavailable("App Server recovery failed")
+        for attempt in range(self._recovery_attempts):
+            if self._shutdown_event.wait(self._recovery_backoff[attempt]):
+                break
+            candidate: EngineClient | None = None
+            try:
+                assert self._client_factory is not None
+                candidate = self._client_factory()
+                self._bind_client(candidate)
+                candidate.start()
+                snapshot = self._verified_snapshot(candidate)
+            except Exception as error:
+                last_failure = error
+                if candidate is not None:
+                    candidate.close()
+                continue
+
+            with self._state_monitor:
+                shutting_down = self._shutdown
+                if shutting_down:
+                    previous = None
+                else:
+                    previous = self._client
+                    self._client = candidate
+                    self._capability_snapshot = snapshot
+                    self._closed = False
+                    self._health_state = EngineHealth.READY
+                    self._last_protocol_success = time.monotonic()
+                    self._next_recovery_at = 0.0
+                self._recovery_thread = None
+            if shutting_down:
+                candidate.close()
+                return
+            assert previous is not None
+            previous.close()
+            return
+
+        with self._state_monitor:
+            if not self._shutdown:
+                self._health_state = self._failure_health(last_failure)
+                self._next_recovery_at = (
+                    time.monotonic() + self._recovery_cooldown
+                )
+            self._recovery_thread = None
+
+    @staticmethod
+    def _failure_health(error: Exception) -> EngineHealth:
+        if isinstance(error, (RunnerProtocolError, EngineFailure)):
+            return EngineHealth.PROTOCOL_INCOMPATIBLE
+        return EngineHealth.UNAVAILABLE
 
     def capabilities(self) -> dict[str, Any]:
         if self._capability_snapshot is None:
@@ -519,7 +737,7 @@ class CodexEngine:
         }
 
     def create_task(self, workspace: Workspace, mode: RunMode) -> EngineTask:
-        result = self._client.request(
+        result = self._request(
             "thread/start",
             {
                 "model": self.MODEL,
@@ -532,7 +750,7 @@ class CodexEngine:
         return self._task_from_result(result)
 
     def fork_task(self, engine_ref: str, workspace: Workspace) -> EngineTask:
-        result = self._client.request(
+        result = self._request(
             "thread/fork",
             {
                 "threadId": engine_ref,
@@ -544,7 +762,7 @@ class CodexEngine:
         return self._task_from_result(result)
 
     def resume_task(self, engine_ref: str, workspace: Workspace) -> EngineTask:
-        loaded_result = self._client.request("thread/loaded/list", None)
+        loaded_result = self._request("thread/loaded/list", None)
         loaded = loaded_result.get("data")
         if not isinstance(loaded, list) or not all(
             isinstance(thread_id, str) for thread_id in loaded
@@ -557,6 +775,7 @@ class CodexEngine:
             (
                 row
                 for row in self._paged_rows(
+                    None,
                     "thread/list",
                     {
                         "sourceKinds": ["appServer"],
@@ -577,7 +796,7 @@ class CodexEngine:
             return EngineTask(engine_ref, self.MODEL)
         if status_type != "notLoaded":
             raise EngineFailure("engine task state is unavailable")
-        result = self._client.request(
+        result = self._request(
             "thread/resume",
             {
                 "threadId": engine_ref,
@@ -589,7 +808,7 @@ class CodexEngine:
         return self._task_from_result(result)
 
     def read_task(self, engine_ref: str) -> None:
-        result = self._client.request(
+        result = self._request(
             "thread/read", {"threadId": engine_ref, "includeTurns": False}
         )
         thread = result.get("thread") or {}
@@ -600,18 +819,18 @@ class CodexEngine:
         safe_name, _ = bounded_text(name, 200)
         if not safe_name.strip():
             raise EngineFailure("task name is required")
-        self._client.request(
+        self._request(
             "thread/name/set", {"threadId": engine_ref, "name": safe_name}
         )
 
     def archive_task(self, engine_ref: str) -> None:
-        self._client.request("thread/archive", {"threadId": engine_ref})
+        self._request("thread/archive", {"threadId": engine_ref})
 
     def unarchive_task(self, engine_ref: str) -> None:
-        self._client.request("thread/unarchive", {"threadId": engine_ref})
+        self._request("thread/unarchive", {"threadId": engine_ref})
 
     def delete_task(self, engine_ref: str) -> None:
-        self._client.request("thread/delete", {"threadId": engine_ref})
+        self._request("thread/delete", {"threadId": engine_ref})
 
     def start_turn(
         self,
@@ -674,7 +893,7 @@ class CodexEngine:
         params = {"threadId": engine_ref, "objective": safe_objective}
         if status is not None:
             params["status"] = status
-        result = self._client.request(
+        result = self._request(
             "thread/goal/set",
             params,
         )
@@ -694,7 +913,7 @@ class CodexEngine:
             }
 
     def goal(self, engine_ref: str) -> dict[str, Any] | None:
-        result = self._client.request("thread/goal/get", {"threadId": engine_ref})
+        result = self._request("thread/goal/get", {"threadId": engine_ref})
         goal = result.get("goal")
         if goal is None:
             with self._goal_lock:
@@ -710,7 +929,7 @@ class CodexEngine:
         return self._remember_goal(engine_ref, goal)
 
     def clear_goal(self, engine_ref: str) -> None:
-        self._client.request("thread/goal/clear", {"threadId": engine_ref})
+        self._request("thread/goal/clear", {"threadId": engine_ref})
         with self._goal_lock:
             self._goal_snapshots.pop(engine_ref, None)
 
@@ -718,7 +937,7 @@ class CodexEngine:
         operation = self._operation(operation_id)
         if operation.terminal or operation.turn_ref is None:
             raise EngineFailure("active turn cannot be steered")
-        self._client.request(
+        self._request(
             "turn/steer",
             {
                 "threadId": operation.engine_ref,
@@ -734,7 +953,7 @@ class CodexEngine:
         operation.stop_requested = True
         self._interactions.cancel_operation(operation_id)
         if operation.turn_ref is not None:
-            self._client.request(
+            self._request(
                 "turn/interrupt",
                 {"threadId": operation.engine_ref, "turnId": operation.turn_ref},
             )
@@ -761,10 +980,15 @@ class CodexEngine:
         ]
 
     def account(self) -> dict[str, Any]:
-        account_result = self._client.request(
+        account_result = self._request(
             "account/read", {"refreshToken": False}
         )
-        limits_result = self._client.request("account/rateLimits/read", None)
+        try:
+            limits_result = self._request("account/rateLimits/read", None)
+        except RunnerProtocolError:
+            # Usage metadata is optional. A pinned App Server can reject this
+            # request while the authenticated account and task APIs remain live.
+            limits_result = {}
         account = account_result.get("account") or {}
         limits = limits_result.get("rateLimits") or {}
         primary = limits.get("primary") or {}
@@ -786,7 +1010,7 @@ class CodexEngine:
         }
 
     def skills(self, workspace: Workspace) -> list[dict[str, Any]]:
-        result = self._client.request("skills/list", {"cwds": [workspace.path]})
+        result = self._request("skills/list", {"cwds": [workspace.path]})
         skills: list[dict[str, Any]] = []
         for row in result.get("data") or []:
             if not isinstance(row, dict):
@@ -803,7 +1027,7 @@ class CodexEngine:
         return skills
 
     def mcp_status(self, engine_ref: str) -> list[dict[str, Any]]:
-        result = self._client.request(
+        result = self._request(
             "mcpServerStatus/list",
             {"threadId": engine_ref, "detail": "toolsAndAuthOnly", "limit": 100},
         )
@@ -839,7 +1063,7 @@ class CodexEngine:
         inputs: list[dict[str, Any]] | None,
     ) -> None:
         try:
-            result = self._client.request(
+            result = self._request(
                 "turn/start",
                 {
                     "threadId": operation.engine_ref,
@@ -874,7 +1098,7 @@ class CodexEngine:
         self, operation: Operation, target: Mapping[str, Any]
     ) -> None:
         try:
-            result = self._client.request(
+            result = self._request(
                 "review/start",
                 {
                     "threadId": operation.engine_ref,
@@ -899,6 +1123,17 @@ class CodexEngine:
             operation.publish(
                 "turn_completed", {"status": "engineError"}, terminal=True
             )
+
+    def _on_notification_from(
+        self,
+        client: EngineClient,
+        method: str,
+        params: Mapping[str, Any],
+    ) -> None:
+        with self._state_monitor:
+            if self._shutdown or self._closed or self._client is not client:
+                return
+        self._on_notification(method, params)
 
     def _on_notification(self, method: str, params: Mapping[str, Any]) -> None:
         if method == "thread/goal/updated":
@@ -930,6 +1165,14 @@ class CodexEngine:
         terminal = event.kind == "turn_completed"
         operation.publish(event.kind, event.payload, terminal=terminal)
 
+    def _on_server_request_from(
+        self, client: EngineClient, request: ServerRequest
+    ) -> Mapping[str, Any]:
+        with self._state_monitor:
+            if self._shutdown or self._closed or self._client is not client:
+                raise EngineFailure("App Server request has no current owner")
+        return self._on_server_request(request)
+
     def _on_server_request(self, request: ServerRequest) -> Mapping[str, Any]:
         with self._lock:
             operation = self._active
@@ -941,16 +1184,6 @@ class CodexEngine:
             operation.workspace_path,
             request,
         )
-
-    def _on_failure(self, _error: RunnerError) -> None:
-        self._closed = True
-        with self._lock:
-            operation = self._active
-        if operation is not None and not operation.terminal:
-            self._interactions.cancel_operation(operation.operation_id)
-            operation.publish(
-                "turn_completed", {"status": "runnerUnavailable"}, terminal=True
-            )
 
     def _release(self, operation: Operation) -> None:
         with self._lock:
@@ -1025,7 +1258,7 @@ class CodexEngine:
     def _skill_input(self, workspace: Workspace, skill_name: str) -> dict[str, Any]:
         if not skill_name or len(skill_name) > 200:
             raise EngineFailure("skill name is invalid")
-        result = self._client.request("skills/list", {"cwds": [workspace.path]})
+        result = self._request("skills/list", {"cwds": [workspace.path]})
         for row in result.get("data") or []:
             if not isinstance(row, dict):
                 continue

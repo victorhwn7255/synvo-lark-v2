@@ -34,42 +34,44 @@
   --negative: #cb455d;
   --negative-soft: #ffebef;
   --focus: #5b3ff0;
-  --scrollbar-track: color-mix(in srgb, var(--surface-muted) 82%, transparent);
-  --scrollbar-thumb: color-mix(in srgb, var(--violet) 58%, var(--border-strong));
-  --scrollbar-thumb-hover: color-mix(in srgb, var(--violet) 78%, var(--cyan));
+  --scrollbar-size: .4rem;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: color-mix(in srgb, var(--violet) 52%, var(--border-strong));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--violet) 76%, var(--cyan));
   color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
-}
-
-.workspace-themed-scrollbar {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar {
-  width: .62rem;
-  height: .62rem;
+.workspace-themed-scrollbar {
+  scrollbar-gutter: stable;
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar-track {
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
   border-radius: 999px;
   background: var(--scrollbar-track);
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
+*::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: var(--scrollbar-thumb);
-  background-clip: padding-box;
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
-  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 html {

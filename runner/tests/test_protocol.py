@@ -56,10 +56,14 @@ class AppServerClientTest(unittest.TestCase):
 
     def test_timeout_and_close_are_bounded(self) -> None:
         started = time.monotonic()
-        with self.client("hang") as client:
+        client = self.client("hang")
+        failures: list[str] = []
+        client.on_failure(lambda error: failures.append(type(error).__name__))
+        with client:
             with self.assertRaises(RunnerUnavailable):
                 client.request("test/hang", {})
         self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(["RunnerUnavailable"], failures)
 
 
 class EventBufferTest(unittest.TestCase):

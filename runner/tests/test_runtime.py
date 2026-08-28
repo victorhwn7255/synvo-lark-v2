@@ -112,7 +112,19 @@ class RunnerContainerContractTest(unittest.TestCase):
         self.assertIn("no-new-privileges:true", overlay)
         self.assertIn("seccomp=unconfined", overlay)
         self.assertIn("pids_limit: 256", overlay)
-        self.assertIn("bubblewrap", dockerfile)
+        self.assertRegex(
+            dockerfile,
+            r"FROM node:22-bookworm-slim@sha256:[0-9a-f]{64}",
+        )
+        self.assertRegex(
+            dockerfile,
+            r"FROM eclipse-temurin:21-jdk@sha256:[0-9a-f]{64}",
+        )
+        self.assertRegex(
+            dockerfile,
+            r"FROM python:3\.13-slim-bookworm@sha256:[0-9a-f]{64}",
+        )
+        self.assertIn("bubblewrap=0.8.0-2+deb12u1", dockerfile)
 
 
 if __name__ == "__main__":

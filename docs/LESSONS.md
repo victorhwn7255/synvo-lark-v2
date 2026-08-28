@@ -1290,3 +1290,88 @@ include that file in every build context—especially multi-stage Docker builds.
 - `backend/config/pmd/unused-code.xml`
 - `backend/Dockerfile`
 - `backend/src/main/java/synvo/integration/codex/CodexRunnerClient.java`
+
+## 2026-08-28 — Optional runtime metadata and mutable base tags must not gate readiness
+
+### Symptom
+
+H5 stayed on “Checking Codex” and reported Codex unavailable even though the
+runner process, App Server initialization, model inventory, and ChatGPT login
+were healthy. Rebuilding the runner then caused its sandbox startup check to
+fail.
+
+### Root cause
+
+The runner treated `account/rateLimits/read` as mandatory account state. Pinned
+App Server `0.148.0` returned protocol error `-32603` for that optional usage
+request while `account/read` and `model/list` continued to succeed. The runner
+converted the optional failure into `RUNNER_UNAVAILABLE`, so the backend hid
+otherwise usable workspaces.
+
+Separately, the mutable `python:3.13-slim` image tag moved from Debian Bookworm
+to Trixie. Trixie's Bubblewrap `0.12` could not mount `/proc` under the runner's
+restricted Compose capabilities, while Bookworm's Bubblewrap `0.8` remained
+compatible.
+
+### Resolution
+
+- Preserve verified authentication when only rate-limit metadata is rejected;
+  expose plan, usage, and reset time as unavailable instead of disabling Codex.
+- Keep transport failures and the authoritative `account/read` request
+  fail-closed.
+- Replace a failed App Server client behind one single-flight recovery worker.
+  Capability-check the replacement before publishing `ready`, terminalize any
+  active operation exactly once, and never replay user work implicitly.
+- Report `recovering`, `protocolIncompatible`, and `unavailable` separately so
+  H5 can keep usable data visible and poll back to `ready` without a reload.
+- Keep retry ownership inside the existing Lark lifecycle and continue bounded
+  replacement attempts after a failed reconnect.
+- Pin the runner's Python, Node, and Java bases by immutable digest, and pin the
+  compatible Bubblewrap package version, so upstream tag movement cannot
+  silently replace the sandbox implementation.
+
+### Preventive rule
+
+Classify runtime probes as authoritative or optional before composing a health
+or readiness response. Optional usage and presentation metadata must degrade
+independently. Test every optional failure branch.
+
+Cached startup success is not live readiness. Probe a Stable App Server method
+after a short freshness interval, serialize recovery, preserve exactly-one
+terminal ownership, and do not replay an interrupted turn. Surface a safe,
+precise recovery state rather than collapsing all failures into unavailable.
+
+Container tags are not stable runtime inputs, even when they name a
+distribution. Pin the image digest and sandbox package version, keep the
+sandbox self-check as a startup gate, and rebuild the runner in routine
+verification so upstream changes are discovered before a live environment is
+replaced.
+
+### Regression coverage and live verification
+
+- Added a runner regression proving rejected rate-limit metadata returns a
+  valid authenticated account with null usage fields.
+- All 65 runner tests and 3 subtests passed, including stale readiness,
+  single-flight replacement, no replay, exactly-one terminal, protocol
+  incompatibility, and precise HTTP health-state coverage.
+- All 240 backend tests and the full Maven package/PMD gate passed.
+- All 107 frontend tests, type checking, linting, and the production build
+  passed, including partial startup failure and no-reload recovery coverage.
+- The digest-pinned runner image rebuilt with Python 3.13.15, Node 22.23.2,
+  Codex 0.148.0, Bubblewrap 0.8.0, and Java 21.0.12.
+- Compose configuration validated and all four services became healthy. The
+  backend and H5 status routes returned ready, and the Lark WebSocket reported
+  connected.
+- The live sandbox self-check passed before and after recovery.
+- Terminating the live App Server process group produced
+  `ready -> recovering -> ready` without restarting the runner container.
+
+### Relevant areas
+
+- `runner/Dockerfile`
+- `runner/synvo_runner/engine.py`
+- `runner/synvo_runner/protocol.py`
+- `runner/synvo_runner/runtime.py`
+- `runner/tests/test_engine.py`
+- `backend/src/main/java/synvo/lark/channel/LarkChannelLifecycle.java`
+- `frontend/src/codex/useCodexWorkspace.ts`

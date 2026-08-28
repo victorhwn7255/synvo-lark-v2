@@ -72,6 +72,65 @@ describe('CodexWorkspace', () => {
     ))
   })
 
+  it('keeps successful runtime and workspace data when the initial task list fails', async () => {
+    const codex = codexFlow({ tasks: [] })
+    vi.mocked(codex.api.tasks)
+      .mockRejectedValueOnce(new Error('The task list is temporarily unavailable.'))
+      .mockResolvedValue([])
+
+    renderWorkspace(codex.api, conversationFlow().api)
+
+    expect(await screen.findByText('Codex is ready')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Synvo Workspaces/Finance/' })).toBeInTheDocument()
+    expect(screen.queryByText('Checking Codex…')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('polls a recovering runtime until it becomes ready without reloading H5', async () => {
+    let runRecoveryPoll: (() => void) | null = null
+    vi.spyOn(window, 'setInterval').mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 3_000 && typeof handler === 'function') {
+        runRecoveryPoll = () => { handler() }
+      }
+      return 1
+    }) as typeof window.setInterval)
+    const codex = codexFlow({ tasks: [] })
+    const ready = await codex.api.status()
+    vi.mocked(codex.api.status)
+      .mockResolvedValueOnce({ ...ready, state: 'RECOVERING' })
+      .mockResolvedValueOnce(ready)
+
+    renderWorkspace(codex.api, conversationFlow().api)
+
+    expect(await screen.findByText('Codex is reconnecting automatically…')).toBeInTheDocument()
+    expect(runRecoveryPoll).not.toBeNull()
+    await act(async () => runRecoveryPoll?.())
+    expect(await screen.findByText('Codex is ready')).toBeInTheDocument()
+  })
+
+  it('replaces a failed initial status request with an unavailable state and self-recovers', async () => {
+    let runRecoveryPoll: (() => void) | null = null
+    vi.spyOn(window, 'setInterval').mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 3_000 && typeof handler === 'function') {
+        runRecoveryPoll = () => { handler() }
+      }
+      return 1
+    }) as typeof window.setInterval)
+    const codex = codexFlow({ tasks: [] })
+    const ready = await codex.api.status()
+    vi.mocked(codex.api.status)
+      .mockRejectedValueOnce(new Error('Codex status is temporarily unavailable.'))
+      .mockResolvedValueOnce(ready)
+
+    renderWorkspace(codex.api, conversationFlow().api)
+
+    expect(await screen.findByText('Codex is temporarily unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('Checking Codex…')).not.toBeInTheDocument()
+    await act(async () => runRecoveryPoll?.())
+    expect(await screen.findByText('Codex is ready')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('renders ordered activity and resolves a mandatory detail-rich H5 interaction', async () => {
     const operation = activeOperation()
     const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })

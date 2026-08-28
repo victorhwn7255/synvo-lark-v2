@@ -141,8 +141,10 @@ function SelectChevronIcon() {
 function runtimeLabel(status: CodexStatus | null) {
   switch (status?.state) {
     case 'READY': return 'Codex is ready'
+    case 'RECOVERING': return 'Codex is reconnecting automatically…'
     case 'AUTHENTICATION_REQUIRED': return 'Codex login is required on the runner host'
     case 'DISABLED': return 'Codex is disabled in this environment'
+    case 'PROTOCOL_INCOMPATIBLE': return 'The pinned Codex runtime is incompatible'
     case 'UNAVAILABLE': return 'Codex is temporarily unavailable'
     default: return 'Checking Codex…'
   }

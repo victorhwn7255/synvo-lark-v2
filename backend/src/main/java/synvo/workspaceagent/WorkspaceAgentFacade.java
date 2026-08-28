@@ -1069,9 +1069,13 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 							WorkspaceAgentException.Code.AUTHENTICATION_REQUIRED);
 				}
 			}
+			case RECOVERING -> throw new WorkspaceAgentException(
+					WorkspaceAgentException.Code.UNAVAILABLE);
 			case DISABLED -> throw new WorkspaceAgentException(WorkspaceAgentException.Code.DISABLED);
 			case AUTHENTICATION_REQUIRED -> throw new WorkspaceAgentException(
 					WorkspaceAgentException.Code.AUTHENTICATION_REQUIRED);
+			case PROTOCOL_INCOMPATIBLE -> throw new WorkspaceAgentException(
+					WorkspaceAgentException.Code.PROTOCOL_INCOMPATIBLE);
 			case UNAVAILABLE -> throw new WorkspaceAgentException(
 					WorkspaceAgentException.Code.UNAVAILABLE);
 		}

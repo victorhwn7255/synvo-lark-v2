@@ -13,7 +13,7 @@ export type CodexInteractionDecision = 'APPROVE_ONCE' | 'DECLINE' | 'CANCEL'
 export type CodexReviewKind = 'UNCOMMITTED_CHANGES' | 'BASE_BRANCH' | 'COMMIT' | 'CUSTOM'
 
 export interface CodexStatus {
-  state: 'READY' | 'DISABLED' | 'AUTHENTICATION_REQUIRED' | 'UNAVAILABLE'
+  state: 'READY' | 'RECOVERING' | 'DISABLED' | 'AUTHENTICATION_REQUIRED' | 'PROTOCOL_INCOMPATIBLE' | 'UNAVAILABLE'
   model: string | null
   runtimeVersion: string | null
   reasoningEfforts: string[]
@@ -418,7 +418,7 @@ function parseInteractionRequired(value: unknown): CodexInteractionRequired | nu
 
 function isCodexStatus(value: unknown): value is CodexStatus {
   if (!isRecord(value)) return false
-  return ['READY', 'DISABLED', 'AUTHENTICATION_REQUIRED', 'UNAVAILABLE'].includes(value.state as string) &&
+  return ['READY', 'RECOVERING', 'DISABLED', 'AUTHENTICATION_REQUIRED', 'PROTOCOL_INCOMPATIBLE', 'UNAVAILABLE'].includes(value.state as string) &&
     (typeof value.model === 'string' || value.model === null) &&
     (typeof value.runtimeVersion === 'string' || value.runtimeVersion === null) &&
     isStringArray(value.reasoningEfforts) &&

@@ -1,15 +1,18 @@
-FROM node:22-bookworm-slim AS codex-runtime
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS codex-runtime
 
 WORKDIR /opt/codex
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM eclipse-temurin:21-jdk AS java-runtime
+FROM eclipse-temurin:21-jdk@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b AS java-runtime
 
-FROM python:3.13-slim AS runtime
+# Keep Bubblewrap on the Debian Bookworm line. The mutable 3.13-slim tag moved
+# to Trixie, whose Bubblewrap 0.12 cannot create the Codex sandbox under the
+# runner's intentionally restricted container capabilities.
+FROM python:3.13-slim-bookworm@sha256:c45a22ea000adfd9cda29364bbe7edd23001ce5cc2ad15857cfbf7766943b9ca AS runtime
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends bubblewrap ca-certificates git \
+    && apt-get install --yes --no-install-recommends bubblewrap=0.8.0-2+deb12u1 ca-certificates git \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 synvo-runner \
     && useradd --uid 10001 --gid synvo-runner --create-home synvo-runner \

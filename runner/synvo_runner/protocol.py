@@ -145,9 +145,13 @@ class AppServerClient:
         *,
         timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
-        process = self._require_process()
-        if process.poll() is not None:
-            raise RunnerUnavailable("App Server exited")
+        try:
+            process = self._require_process()
+            if process.poll() is not None:
+                raise RunnerUnavailable("App Server exited")
+        except RunnerUnavailable as error:
+            self._transport_failed(error)
+            raise
         with self._pending_lock:
             if len(self._pending) >= self._max_pending_requests:
                 raise RunnerUnavailable("App Server request capacity reached")
@@ -156,7 +160,13 @@ class AppServerClient:
             future: Future[dict[str, Any]] = Future()
             self._pending[request_id] = future
         try:
-            self._write({"id": request_id, "method": method, "params": params or {}})
+            try:
+                self._write(
+                    {"id": request_id, "method": method, "params": params or {}}
+                )
+            except RunnerUnavailable as error:
+                self._transport_failed(error)
+                raise
             try:
                 message = future.result(
                     timeout=self._request_timeout
@@ -164,7 +174,9 @@ class AppServerClient:
                     else timeout_seconds
                 )
             except FutureTimeout as error:
-                raise RunnerUnavailable("App Server request timed out") from error
+                failure = RunnerUnavailable("App Server request timed out")
+                self._transport_failed(failure)
+                raise failure from error
         finally:
             with self._pending_lock:
                 self._pending.pop(request_id, None)
@@ -181,7 +193,11 @@ class AppServerClient:
         return result
 
     def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-        self._write({"method": method, "params": params or {}})
+        try:
+            self._write({"method": method, "params": params or {}})
+        except RunnerUnavailable as error:
+            self._transport_failed(error)
+            raise
 
     def close(self) -> None:
         process = self._process
@@ -276,7 +292,10 @@ class AppServerClient:
             return
         method = message.get("method")
         if not isinstance(method, str):
-            self._fail_pending(RunnerProtocolError("App Server message has no method"))
+            failure = RunnerProtocolError("App Server message has no method")
+            self._fail_pending(failure)
+            self._report_failure(failure)
+            self._terminate_after_protocol_failure()
             return
         params = message.get("params")
         safe_params = params if isinstance(params, dict) else {}
@@ -356,6 +375,11 @@ class AppServerClient:
                 pass
             except PermissionError:
                 process.terminate()
+
+    def _transport_failed(self, error: RunnerUnavailable) -> None:
+        self._fail_pending(error)
+        self._report_failure(error)
+        self._terminate_after_protocol_failure()
 
     def _report_failure(self, error: RunnerError) -> None:
         if self._failure_reported.is_set():

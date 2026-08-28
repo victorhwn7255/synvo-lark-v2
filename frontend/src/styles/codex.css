@@ -176,8 +176,13 @@
 }
 
 .codex-runtime-status[data-state="authentication_required"] strong,
+.codex-runtime-status[data-state="recovering"] strong,
 .codex-runtime-status[data-state="unavailable"] strong {
   color: var(--warning);
+}
+
+.codex-runtime-status[data-state="protocol_incompatible"] strong {
+  color: var(--danger);
 }
 
 .codex-task-setup form {

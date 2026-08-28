@@ -22,6 +22,8 @@ interface UseCodexWorkspaceOptions {
   api: CodexApi
 }
 
+const STATUS_RECOVERY_INTERVAL_MS = 3_000
+
 export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   const [status, setStatus] = useState<CodexStatus | null>(null)
   const [workspaces, setWorkspaces] = useState<CodexWorkspace[]>([])
@@ -195,23 +197,26 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     const initialize = async () => {
       setLoading(true)
       setError(null)
-      try {
-        const [nextStatus, nextWorkspaces, nextTasks] = await Promise.all([
-          api.status(controller.signal),
-          api.workspaces(controller.signal),
-          api.tasks(false, undefined, controller.signal),
-        ])
-        if (controller.signal.aborted) return
-        setStatus(nextStatus)
-        setWorkspaces(nextWorkspaces)
-        setTasks(nextTasks)
-        const link = initialLinkRef.current
-        if (link.taskId) await openTask(link.taskId, link.interactionId, controller.signal)
-      } catch (failure: unknown) {
-        if (!controller.signal.aborted) setError(safeMessage(failure))
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
+      const [nextStatus, nextWorkspaces, nextTasks] = await Promise.allSettled([
+        api.status(controller.signal),
+        api.workspaces(controller.signal),
+        api.tasks(false, undefined, controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      if (nextStatus.status === 'fulfilled') setStatus(nextStatus.value)
+      else setStatus(unavailableStatus())
+      if (nextWorkspaces.status === 'fulfilled') setWorkspaces(nextWorkspaces.value)
+      if (nextTasks.status === 'fulfilled') setTasks(nextTasks.value)
+
+      const failure = [nextStatus, nextWorkspaces]
+        .find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failure) setError(safeMessage(failure.reason))
+
+      const link = initialLinkRef.current
+      if (link.taskId && nextTasks.status === 'fulfilled') {
+        await openTask(link.taskId, link.interactionId, controller.signal)
       }
+      if (!controller.signal.aborted) setLoading(false)
     }
     void initialize()
     return () => {
@@ -219,6 +224,28 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
       subscriptionRef.current?.close()
     }
   }, [api, openTask])
+
+  useEffect(() => {
+    if (loading || status?.state === 'READY' || status?.state === 'DISABLED') return
+    const controller = new AbortController()
+    const pollStatus = async () => {
+      const [nextStatus, nextWorkspaces] = await Promise.allSettled([
+        api.status(controller.signal),
+        api.workspaces(controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      if (nextStatus.status === 'fulfilled') setStatus(nextStatus.value)
+      if (nextWorkspaces.status === 'fulfilled') setWorkspaces(nextWorkspaces.value)
+      const failure = [nextStatus, nextWorkspaces]
+        .find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      setError(failure ? safeMessage(failure.reason) : null)
+    }
+    const interval = window.setInterval(() => void pollStatus(), STATUS_RECOVERY_INTERVAL_MS)
+    return () => {
+      window.clearInterval(interval)
+      controller.abort()
+    }
+  }, [api, loading, status?.state])
 
   useEffect(() => {
     if (loading) return
@@ -485,6 +512,16 @@ function updateDeepLink(taskId: string | null, interactionId: string | null) {
 
 function safeMessage(error: unknown) {
   return error instanceof Error ? error.message : 'The Codex task action could not be completed.'
+}
+
+function unavailableStatus(): CodexStatus {
+  return {
+    state: 'UNAVAILABLE',
+    model: null,
+    runtimeVersion: null,
+    reasoningEfforts: [],
+    account: null,
+  }
 }
 
 function isTerminalOperation(status: CodexOperation['status']) {
