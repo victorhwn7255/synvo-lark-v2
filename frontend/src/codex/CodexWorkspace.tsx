@@ -220,7 +220,6 @@ export function CodexWorkspace({
         tasks={taskState.tasks}
         selectedTaskId={taskState.selectedTaskId}
         archived={taskState.archived}
-        search={taskState.search}
         busy={taskBusy}
         assistantReady={assistantReady}
         assistantAvailability={assistantAvailability}
@@ -232,7 +231,6 @@ export function CodexWorkspace({
         onArchiveTask={archiveSidebarTask}
         onDeleteTask={deleteSidebarTask}
         onArchivedChange={taskState.setArchived}
-        onSearchChange={taskState.setSearch}
         onOpenSettings={() => {
           setView('settings')
           setTaskPanelOpen(false)

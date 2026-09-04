@@ -302,13 +302,14 @@ Live H5 checks are manual and must never run in the ordinary automated suite.
 When repeating them, never print logs containing message bodies, prompts,
 credentials, raw output, diffs, configured paths, or enterprise content.
 
-## Next phase
+## Next workflow
 
-Phase 4 will add one opinionated, bounded Synvo workplace workflow on top of
-the completed Codex-in-Lark foundation. There is no mandatory Phase 3.5.
+`wf-keystone-quotation` will add the first opinionated, bounded Synvo workplace
+workflow on top of the completed Codex-in-Lark foundation. Its charter and
+phase specifications live in `docs/specs/wf-keystone-quotation/`.
 Permissioned elevated execution, temporary additional-folder grants, or
 authenticated external operations should be introduced only if the selected
-Phase 4 workflow demonstrates a concrete need and receives an approved
+workflow phase demonstrates a concrete need and receives an approved
 specification and acceptance tests.
 
 ## Environment configuration

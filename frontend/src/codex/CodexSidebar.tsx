@@ -2,6 +2,7 @@ import { useState, type FormEvent, type RefObject } from 'react'
 import type { CodexTask } from '../api/codex'
 import {
   ArchiveIcon,
+  ArtifactIcon,
   CheckIcon,
   CloseIcon,
   ConversationIcon,
@@ -20,7 +21,6 @@ export function CodexSidebar({
   tasks,
   selectedTaskId,
   archived,
-  search,
   busy,
   assistantReady,
   assistantAvailability,
@@ -32,7 +32,6 @@ export function CodexSidebar({
   onArchiveTask,
   onDeleteTask,
   onArchivedChange,
-  onSearchChange,
   onOpenSettings,
 }: {
   collapsed: boolean
@@ -40,7 +39,6 @@ export function CodexSidebar({
   tasks: CodexTask[]
   selectedTaskId: string | null
   archived: boolean
-  search: string
   busy: boolean
   assistantReady: boolean
   assistantAvailability: string
@@ -52,7 +50,6 @@ export function CodexSidebar({
   onArchiveTask: (taskId: string) => Promise<void>
   onDeleteTask: (taskId: string) => Promise<void>
   onArchivedChange: (archived: boolean) => void
-  onSearchChange: (search: string) => void
   onOpenSettings: () => void
 }) {
   const [renamingTaskId, setRenamingTaskId] = useState<string | null>(null)
@@ -114,6 +111,27 @@ export function CodexSidebar({
 
       <div className="workspace-sidebar__scroll">
         <nav
+          className="workspace-sidebar__section codex-workflow-navigation"
+          aria-label={collapsed ? 'Workflows' : undefined}
+          aria-labelledby={collapsed ? undefined : 'codex-workflow-navigation-title'}
+        >
+          {!collapsed && (
+            <h2 id="codex-workflow-navigation-title" className="workspace-sidebar__section-title">Workflows</h2>
+          )}
+          <button
+            className="workspace-nav-item codex-workflow-link"
+            type="button"
+            aria-label="Quotation — coming soon"
+            title={collapsed ? 'Quotation — coming soon' : undefined}
+            disabled
+          >
+            <ArtifactIcon />
+            <span className="workspace-sidebar__label">Quotation</span>
+            <small className="workspace-sidebar__label">Coming soon</small>
+          </button>
+        </nav>
+
+        <nav
           className="workspace-sidebar__section codex-task-navigation"
           aria-label={collapsed ? 'Codex tasks' : undefined}
           aria-labelledby={collapsed ? undefined : 'codex-task-navigation-title'}
@@ -121,15 +139,6 @@ export function CodexSidebar({
           {!collapsed && (
             <>
               <h2 id="codex-task-navigation-title" className="workspace-sidebar__section-title">Tasks</h2>
-              <label className="codex-task-search">
-                <span className="sr-only">Search Codex tasks</span>
-                <input
-                  type="search"
-                  value={search}
-                  placeholder="Search tasks"
-                  onChange={(event) => onSearchChange(event.target.value)}
-                />
-              </label>
               <div className="codex-task-filters" aria-label="Task status">
                 <button type="button" aria-pressed={!archived} onClick={() => onArchivedChange(false)}>Active</button>
                 <button type="button" aria-pressed={archived} onClick={() => onArchivedChange(true)}>Archived</button>

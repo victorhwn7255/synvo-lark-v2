@@ -29,7 +29,6 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   const [workspaces, setWorkspaces] = useState<CodexWorkspace[]>([])
   const [tasks, setTasks] = useState<CodexTask[]>([])
   const [archived, setArchived] = useState(false)
-  const [search, setSearch] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskDetail, setTaskDetail] = useState<CodexTaskDetail | null>(null)
   const [activity, setActivity] = useState<CodexActivity[]>([])
@@ -110,12 +109,12 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
 
   const refreshTasks = useCallback(async (signal?: AbortSignal) => {
     try {
-      const next = await api.tasks(archived, search, signal)
+      const next = await api.tasks(archived, undefined, signal)
       if (!signal?.aborted) setTasks(next)
     } catch (failure: unknown) {
       if (!signal?.aborted) setError(safeMessage(failure))
     }
-  }, [api, archived, search])
+  }, [api, archived])
 
   const refreshTaskAuxiliary = useCallback(async (taskId: string, signal?: AbortSignal) => {
     const [nextInventory, nextGoal] = await Promise.allSettled([
@@ -255,7 +254,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [archived, loading, refreshTasks, search])
+  }, [archived, loading, refreshTasks])
 
   const clearSelection = useCallback(() => {
     subscriptionRef.current?.close()
@@ -443,8 +442,6 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     tasks,
     archived,
     setArchived,
-    search,
-    setSearch,
     selectedTaskId,
     taskDetail,
     activity,

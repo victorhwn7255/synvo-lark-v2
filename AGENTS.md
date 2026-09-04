@@ -78,8 +78,9 @@ Synvo is a Lark-native AI assistant. The approved MVP roadmap has two stages:
 1. Phase 3, **Codex in Lark**, is a single-user rich client for the stable
    Codex App Server workflow capabilities defined in
    `docs/specs/phase-3-codex-in-lark.md`.
-2. Phase 4 will add one opinionated, bounded Synvo workplace workflow on top
-   of that foundation. It requires its own approved specification.
+2. `wf-keystone-quotation` will add the first opinionated, bounded Synvo
+   workplace workflow on top of that foundation. Its three workflow phases
+   require their own approved specifications.
 
 Natural language is the primary user interface.
 
@@ -156,9 +157,10 @@ Maintain the following boundaries:
 - Retried write operations must be idempotent.
 - Relevant operations must produce audit records.
 
-Keep the Phase 3 client mechanics separate from the first bounded Phase 4
-workplace workflow. App-Server-managed nested agent activity may occur inside
-one top-level task, but Synvo must not create its own multi-agent orchestrator.
+Keep the Phase 3 client mechanics separate from the
+`wf-keystone-quotation` workplace workflow. App-Server-managed nested agent
+activity may occur inside one top-level task, but Synvo must not create its
+own multi-agent orchestrator.
 
 ## Simplicity Rules
 

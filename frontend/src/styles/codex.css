@@ -1,13 +1,13 @@
-.codex-task-navigation {
+.codex-workflow-navigation {
   margin-top: 1.15rem;
 }
 
-.codex-task-search {
-  display: block;
-  margin: 0 .45rem .55rem;
+.codex-task-navigation {
+  margin-top: 1.9rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid var(--border);
 }
 
-.codex-task-search input,
 .codex-task-setup input,
 .codex-task-setup select,
 .codex-task-panel input,
@@ -32,12 +32,6 @@
 .codex-elicitation-field select:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--focus) 48%, transparent);
   outline-offset: 2px;
-}
-
-.codex-task-search input {
-  height: 2.1rem;
-  padding: 0 .65rem;
-  font-size: .7rem;
 }
 
 .codex-task-filters {

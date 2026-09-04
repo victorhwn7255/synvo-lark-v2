@@ -621,6 +621,13 @@
   margin-inline: auto;
 }
 
+.workspace-shell[data-sidebar-collapsed="true"] .codex-workflow-link {
+  width: 2.35rem;
+  justify-content: center;
+  margin-inline: auto;
+  padding-inline: 0;
+}
+
 .workspace-shell[data-sidebar-collapsed="true"] .codex-task-row__open {
   justify-content: center;
   padding-inline: 0;

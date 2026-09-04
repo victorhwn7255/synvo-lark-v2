@@ -30,10 +30,15 @@ class AesGcmTokenCipherTests {
 		String encrypted = cipher.encrypt("refresh-token-value", CONTEXT);
 		TokenContext differentContext = new TokenContext(
 				"different-tenant", "open-id-test", TokenContext.TokenType.ACCESS);
+		int ciphertextStart = encrypted.lastIndexOf('.') + 1;
+		char original = encrypted.charAt(ciphertextStart);
+		char replacement = original == 'a' ? 'b' : 'a';
+		String tampered = encrypted.substring(0, ciphertextStart)
+				+ replacement + encrypted.substring(ciphertextStart + 1);
 
 		assertThrows(AesGcmTokenCipher.TokenDecryptionException.class,
 				() -> cipher.decrypt(encrypted, differentContext));
 		assertThrows(AesGcmTokenCipher.TokenDecryptionException.class,
-				() -> cipher.decrypt(encrypted.substring(0, encrypted.length() - 2) + "aa", CONTEXT));
+				() -> cipher.decrypt(tampered, CONTEXT));
 	}
 }
