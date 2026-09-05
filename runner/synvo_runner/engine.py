@@ -186,7 +186,9 @@ class Operation:
         self._on_terminal = on_terminal
         self._events = EventBuffer(max_events=max_events)
         self._terminal = threading.Event()
-        self._state_lock = threading.Lock()
+        self._state_lock = threading.RLock()
+        self._pending_events: list[tuple[str, dict[str, Any], bool, str]] = []
+        self._max_pending_events = max_events
         self._sequence = 0
         self._path_sanitizers: dict[
             tuple[str, str | None], _StreamingWorkspacePathSanitizer
@@ -197,12 +199,30 @@ class Operation:
     def terminal(self) -> bool:
         return self._terminal.is_set()
 
+    def bind_turn(self, turn_ref: str) -> None:
+        # Notifications can precede the turn/start response on stdout. Keep
+        # their order, but publish only the turn confirmed by that response.
+        with self._state_lock:
+            self.turn_ref = turn_ref
+            pending, self._pending_events = self._pending_events, []
+            for kind, payload, terminal, source_turn_ref in pending:
+                self.publish(kind, payload, terminal=terminal, source_turn_ref=source_turn_ref)
+
     def publish(
-        self, kind: str, payload: Mapping[str, Any], *, terminal: bool = False
+        self, kind: str, payload: Mapping[str, Any], *, terminal: bool = False,
+        source_turn_ref: str | None = None,
     ) -> None:
         with self._state_lock:
             if self._terminal.is_set():
                 return
+            if source_turn_ref is not None:
+                if self.turn_ref is None:
+                    if len(self._pending_events) < self._max_pending_events:
+                        self._pending_events.append((kind, dict(payload), terminal, source_turn_ref))
+                        return
+                    kind, payload, terminal = "turn_completed", {"status": "protocolIncompatible"}, True
+                elif source_turn_ref != self.turn_ref:
+                    return
 
             prepared = self._prepare_events(kind, payload)
             for index, (prepared_kind, prepared_payload) in enumerate(prepared):
@@ -213,6 +233,7 @@ class Operation:
                     terminal=prepared_terminal,
                 )
             if terminal:
+                self._pending_events.clear()
                 self._terminal.set()
         if terminal:
             self._on_terminal(self)
@@ -310,6 +331,7 @@ class CodexEngine:
     """Expose tasks and turns while hiding all App Server protocol mechanics."""
 
     MODEL = "gpt-5.6-sol"
+    MAX_RECENT_OPERATIONS = 50
     DEFAULT_HEALTH_PROBE_INTERVAL_SECONDS = 15.0
     DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS = 1.0
     DEFAULT_RECOVERY_ATTEMPTS = 3
@@ -831,6 +853,8 @@ class CodexEngine:
 
     def delete_task(self, engine_ref: str) -> None:
         self._request("thread/delete", {"threadId": engine_ref})
+        with self._goal_lock:
+            self._goal_snapshots.pop(engine_ref, None)
 
     def start_turn(
         self,
@@ -1079,7 +1103,7 @@ class CodexEngine:
             turn_ref = (result.get("turn") or {}).get("id")
             if not isinstance(turn_ref, str):
                 raise EngineFailure("turn start returned no reference")
-            operation.turn_ref = turn_ref
+            operation.bind_turn(turn_ref)
             if operation.stop_requested:
                 self.stop(operation.operation_id)
             if not operation.wait_terminal(timeout_seconds=self._turn_timeout):
@@ -1109,7 +1133,7 @@ class CodexEngine:
             turn_ref = (result.get("turn") or {}).get("id")
             if not isinstance(turn_ref, str):
                 raise EngineFailure("review start returned no reference")
-            operation.turn_ref = turn_ref
+            operation.bind_turn(turn_ref)
             if operation.stop_requested:
                 self.stop(operation.operation_id)
             if not operation.wait_terminal(timeout_seconds=self._turn_timeout):
@@ -1150,6 +1174,15 @@ class CodexEngine:
             operation = self._active
         if operation is None or operation.terminal:
             return
+        thread_ref = params.get("threadId")
+        if thread_ref is not None and thread_ref != operation.engine_ref:
+            return
+        turn = params.get("turn")
+        turn_ref = params.get("turnId")
+        if turn_ref is None and isinstance(turn, dict):
+            turn_ref = turn.get("id")
+        if turn_ref is not None and operation.turn_ref is not None and turn_ref != operation.turn_ref:
+            return
         try:
             event = self._normalizer.normalize_notification(
                 method, params, workspace_root=operation.workspace_path
@@ -1163,7 +1196,10 @@ class CodexEngine:
         if event is None:
             return
         terminal = event.kind == "turn_completed"
-        operation.publish(event.kind, event.payload, terminal=terminal)
+        operation.publish(
+            event.kind, event.payload, terminal=terminal,
+            source_turn_ref=turn_ref if isinstance(turn_ref, str) else None,
+        )
 
     def _on_server_request_from(
         self, client: EngineClient, request: ServerRequest
@@ -1178,6 +1214,13 @@ class CodexEngine:
             operation = self._active
         if operation is None or operation.terminal:
             raise EngineFailure("no active operation owns interaction")
+        thread_ref = request.params.get("threadId")
+        turn_ref = request.params.get("turnId")
+        if (thread_ref is not None and thread_ref != operation.engine_ref) or (
+            turn_ref is not None and operation.turn_ref is not None
+            and turn_ref != operation.turn_ref
+        ):
+            raise EngineFailure("interaction does not belong to the active turn")
         return self._interactions.hold(
             operation.operation_id,
             operation.workspace_id,
@@ -1189,6 +1232,10 @@ class CodexEngine:
         with self._lock:
             if self._active is operation:
                 self._active = None
+            completed = [item for item in self._operations.values() if item.terminal]
+            for expired in completed[:-self.MAX_RECENT_OPERATIONS]:
+                self._operations.pop(expired.operation_id, None)
+                self._interactions.discard_operation(expired.operation_id)
 
     def _new_operation(self, engine_ref: str, workspace: Workspace) -> Operation:
         with self._lock:

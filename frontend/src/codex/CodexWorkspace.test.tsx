@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   CodexApi,
@@ -15,6 +15,7 @@ import type {
   ConversationStreamEvent,
 } from '../api/conversations'
 import { Workspace } from '../workspace/Workspace'
+import { useCodexWorkspace } from './useCodexWorkspace'
 
 describe('CodexWorkspace', () => {
   afterEach(() => {
@@ -810,6 +811,89 @@ describe('CodexWorkspace', () => {
     await waitFor(() => expect(conversation.api.stop).toHaveBeenCalledWith('run-1', 'csrf-token'))
   })
 
+  it('replays an active answer without duplicating its saved partial content', async () => {
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+    const conversation = conversationFlow({ activeRun: true, partialContent: 'The total is ' })
+    renderWorkspace(codex.api, conversation.api)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    await waitFor(() => expect(conversation.api.subscribe).toHaveBeenCalled())
+    act(() => {
+      conversation.emit({ sequence: 4, type: 'content_delta', message: null, delta: 'The total is ', presentation: null, action: null })
+      conversation.emit({ sequence: 5, type: 'content_delta', message: null, delta: '42.', presentation: null, action: null })
+      conversation.emit({ sequence: 6, type: 'completed', message: 'Response complete.', delta: null, presentation: null, action: null })
+    })
+
+    expect(await screen.findByText('The total is 42.')).toBeInTheDocument()
+    expect(screen.queryByText('The total is The total is 42.')).not.toBeInTheDocument()
+  })
+
+  it('ignores failure from a task that is no longer selected', async () => {
+    const previous = deferred<CodexTaskDetail>()
+    const current = detail({ task: { ...pilotTask(), taskId: 'task-2', title: 'Current task' } })
+    const codex = codexFlow()
+    vi.mocked(codex.api.task).mockImplementation((id) => id === 'task-1' ? previous.promise : Promise.resolve(current))
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    let pending!: ReturnType<typeof result.current.openTask>
+    act(() => { pending = result.current.openTask('task-1') })
+    await act(async () => { await result.current.openTask('task-2') })
+    await act(async () => {
+      previous.reject(new Error('Previous task is unavailable'))
+      await pending
+    })
+
+    expect(result.current.taskDetail).toEqual(current)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('discards a delayed approval after changing the selected task', async () => {
+    const approval = deferred<CodexInteraction>()
+    const previous = detail({ activeOperation: activeOperation(), pendingInteractions: [pendingInteraction()] })
+    const current = detail({ task: { ...pilotTask(), taskId: 'task-2' } })
+    const codex = codexFlow()
+    vi.mocked(codex.api.task).mockImplementation((id) => Promise.resolve(id === 'task-1' ? previous : current))
+    vi.mocked(codex.api.interaction).mockReturnValue(approval.promise)
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    let pending!: ReturnType<typeof result.current.openTask>
+    act(() => { pending = result.current.openTask('task-1') })
+    await waitFor(() => expect(codex.api.interaction).toHaveBeenCalled())
+    await act(async () => { await result.current.openTask('task-2') })
+    await act(async () => {
+      approval.resolve(pendingInteraction())
+      await pending
+    })
+
+    expect(result.current.taskDetail).toEqual(current)
+    expect(result.current.interaction).toBeNull()
+  })
+
+  it('ignores a queued event from the previous task without closing the current stream', async () => {
+    const previous = detail({ latestOperation: { ...activeOperation(), status: 'COMPLETED' } })
+    const current = detail({
+      task: { ...pilotTask(), taskId: 'task-2' },
+      activeOperation: { ...activeOperation(), taskId: 'task-2', operationId: 'operation-2' },
+    })
+    const codex = codexFlow()
+    const currentClose = vi.fn()
+    vi.mocked(codex.api.task).mockImplementation((id) => Promise.resolve(id === 'task-1' ? previous : current))
+    vi.mocked(codex.api.subscribe).mockImplementation((id) => ({ close: id === 'operation-2' ? currentClose : vi.fn() }))
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1') })
+    const oldReceive = vi.mocked(codex.api.subscribe).mock.calls[0][1]
+    await act(async () => { await result.current.openTask('task-2') })
+    act(() => oldReceive({
+      kind: 'activity', sequence: 10, type: 'TURN_COMPLETED', label: 'Previous work completed',
+      text: null, truncated: false, terminalStatus: 'COMPLETED',
+    }))
+
+    expect(result.current.activity).toEqual([])
+    expect(currentClose).not.toHaveBeenCalled()
+  })
+
   it('closes a completed task activity stream instead of reconnecting it', async () => {
     const operation = activeOperation('REVIEW')
     const codex = codexFlow({ detail: detail({
@@ -943,7 +1027,7 @@ function codexFlow(overrides: {
   return { api, emit: (event: CodexOperationEvent) => receive?.(event), close }
 }
 
-function conversationFlow(options: { activeRun?: boolean } = {}) {
+function conversationFlow(options: { activeRun?: boolean; partialContent?: string } = {}) {
   let receive: ((event: ConversationStreamEvent) => void) | null = null
   const run: ConversationRun = {
     requestId: 'request-1',
@@ -964,8 +1048,8 @@ function conversationFlow(options: { activeRun?: boolean } = {}) {
       turns: options.activeRun ? [{
         turnId: 'assistant-1',
         role: 'ASSISTANT',
-        content: '',
-        status: 'PENDING',
+        content: options.partialContent ?? '',
+        status: options.partialContent ? 'STREAMING' : 'PENDING',
         createdAt: '2026-08-21T12:00:00Z',
         updatedAt: '2026-08-21T12:00:00Z',
       }] : [],

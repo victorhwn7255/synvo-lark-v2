@@ -1375,3 +1375,108 @@ replaced.
 - `runner/tests/test_engine.py`
 - `backend/src/main/java/synvo/lark/channel/LarkChannelLifecycle.java`
 - `frontend/src/codex/useCodexWorkspace.ts`
+
+## 2026-09-05 — Verify package launchers in the final container stage
+
+### Symptom
+
+The runner image built and reported healthy, but both `npm --version` and
+`npx --version` failed with a missing `../lib/cli.js` module.
+
+### Root cause
+
+Cross-stage `COPY` dereferenced the Node image's npm/npx launcher symlinks.
+The final image contained ordinary launcher files under `/usr/local/bin`, so
+their relative imports no longer resolved within the npm package directory.
+Copying `node_modules` did not repair the relocated entry points.
+
+### Why it was missed
+
+The image tested Codex startup and the sandbox, but never executed these two
+packaged tools from the final runtime layout. A successful multi-stage build
+was treated as proof that the copied launchers remained usable.
+
+### Resolution
+
+Copy Node and its package directory, recreate npm/npx symlinks to their real
+entry points, and execute both version commands during the final-stage build.
+Keep the existing immutable base images and sandbox package pin unchanged.
+
+### Preventive rule
+
+When transferring a runtime between image stages, preserve executable-to-package
+relationships explicitly and smoke-test the actual final-stage entry points.
+Testing an executable only in the stage that installed it is insufficient.
+
+### Verification
+
+- Both version commands failed in the original deployed runner.
+- The rebuilt image passed both build-time launcher checks.
+- The replacement runner returned `10.9.8` for both npm and npx.
+- Its sandbox preflight passed, its health state was `ready`, and all four
+  enabled Compose services became healthy.
+
+### Relevant areas
+
+- `runner/Dockerfile`
+- `runner/synvo_runner/runtime.py`
+
+## 2026-09-05 — Streaming recovery must preserve replay and request ownership
+
+### Symptom
+
+Reopening an active conversation duplicated its saved answer prefix. Delayed
+task reads, approval reads, and old activity callbacks could overwrite a newer
+H5 selection. At the private runner boundary, a different thread's events or
+an earlier turn's completion could be assigned to the currently active turn.
+
+### Root cause
+
+H5 appended a replay starting at sequence zero to an already persisted partial
+answer. Its asynchronous reads and callbacks also relied on mutable current
+selection rather than validating the selection that initiated them. The
+runner's single-active-operation lease was incorrectly treated as sufficient
+event identity, including when notifications preceded the start response.
+
+### Why it was missed
+
+Fixtures primarily delivered responses in request order and replayed into an
+empty answer. They did not interleave old and new selections, foreign thread
+events, or a stale completion before the new turn reference became available.
+
+### Resolution
+
+Rebuild only the active assistant answer from the complete replay. Guard H5
+selection, interaction, and activity callbacks with request generations. At
+the private runner boundary, match supplied thread/turn identifiers and buffer
+early identified events until the start response confirms the owning turn.
+Bound that early-event queue and fail closed on overflow.
+
+### Preventive rule
+
+A concurrency lease is not event identity. Every asynchronous result must
+still belong to its initiating selection or operation before changing current
+state. Reconnection must use either a snapshot plus its matching cursor or a
+complete replay into empty active state, never both the snapshot and the same
+prefix again. Test reversed response ordering and early/stale terminal events.
+
+### Verification
+
+- New regressions reproduced duplicate partial text and stale conversation,
+  task, approval, and activity updates before the fixes.
+- Runner regressions reproduced foreign-thread delivery and premature
+  completion before the start response; the fixed path preserves the matching
+  answer and exactly one terminal event.
+- All 115 frontend tests passed, plus typecheck, lint, and production build.
+- All 70 runner tests and 240 backend tests passed; Maven packaging and PMD
+  also passed. These are automated proofs, not a claim that an authenticated
+  in-Lark reload was observed during this audit.
+
+### Relevant areas
+
+- `frontend/src/conversation/useConversation.ts`
+- `frontend/src/conversation/useConversation.test.ts`
+- `frontend/src/codex/useCodexWorkspace.ts`
+- `frontend/src/codex/CodexWorkspace.test.tsx`
+- `runner/synvo_runner/engine.py`
+- `runner/tests/test_engine.py`

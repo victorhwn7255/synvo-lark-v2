@@ -41,6 +41,9 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   const [reconnecting, setReconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const subscriptionRef = useRef<CodexSubscription | null>(null)
+  const subscriptionVersionRef = useRef(0)
+  const selectionVersionRef = useRef(0)
+  const interactionVersionRef = useRef(0)
   const operationIdRef = useRef<string | null>(null)
   const terminalOperationsRef = useRef(new Map<string, CodexOperation['status']>())
   const selectedTaskIdRef = useRef<string | null>(null)
@@ -60,13 +63,19 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [api])
 
   const loadInteraction = useCallback(async (interactionId: string, signal?: AbortSignal) => {
+    const selectionVersion = selectionVersionRef.current
+    const interactionVersion = ++interactionVersionRef.current
+    const isCurrent = () => !signal?.aborted
+      && selectionVersionRef.current === selectionVersion
+      && interactionVersionRef.current === interactionVersion
     try {
       const detail = await api.interaction(interactionId, signal)
-      if (!signal?.aborted) {
+      if (isCurrent() && detail.taskId === selectedTaskIdRef.current
+        && !terminalOperationsRef.current.has(detail.operationId)) {
         setInteraction(detail)
       }
     } catch (failure: unknown) {
-      if (!signal?.aborted) setError(safeMessage(failure))
+      if (isCurrent()) setError(safeMessage(failure))
     }
   }, [api])
 
@@ -74,6 +83,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     const sameOperation = operationIdRef.current === operation?.operationId
     const terminalReplay = operation !== null && isTerminalOperation(operation.status)
     if (sameOperation && !terminalReplay) return
+    const subscriptionVersion = ++subscriptionVersionRef.current
     subscriptionRef.current?.close()
     subscriptionRef.current = null
     operationIdRef.current = operation?.operationId ?? null
@@ -83,6 +93,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     subscriptionRef.current = api.subscribe(
       operation.operationId,
       (event) => {
+        if (subscriptionVersionRef.current !== subscriptionVersion) return
         setReconnecting(false)
         if (event.kind === 'interaction_required') {
           void loadInteraction(event.interactionId)
@@ -90,6 +101,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
         }
         setActivity((current) => upsertActivity(current, event))
         if (event.terminalStatus !== null) {
+          interactionVersionRef.current += 1
           terminalOperationsRef.current.set(
             operation.operationId,
             operationStatusFromTerminal(event.terminalStatus),
@@ -103,7 +115,9 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
           setReconnecting(false)
         }
       },
-      () => setReconnecting(true),
+      () => {
+        if (subscriptionVersionRef.current === subscriptionVersion) setReconnecting(true)
+      },
     )
   }, [api, loadInteraction])
 
@@ -133,6 +147,14 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     requestedInteractionId?: string | null,
     signal?: AbortSignal,
   ) => {
+    const selectionVersion = ++selectionVersionRef.current
+    interactionVersionRef.current += 1
+    if (selectedTaskIdRef.current !== taskId) {
+      attachOperation(null)
+      setTaskDetail(null)
+      setInventory({ skills: [], mcpServers: [] })
+      setGoalState(null)
+    }
     selectedTaskIdRef.current = taskId
     setSelectedTaskId(taskId)
     setLoadingTask(true)
@@ -140,7 +162,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     setInteraction(null)
     try {
       const detail = await api.task(taskId, signal)
-      if (signal?.aborted || selectedTaskIdRef.current !== taskId) return
+      if (signal?.aborted || selectionVersionRef.current !== selectionVersion) return
       const projectedDetail = projectKnownTerminalOperations(detail, terminalOperationsRef.current)
       setTaskDetail(projectedDetail)
       attachOperation(projectedDetail.activeOperation ?? projectedDetail.latestOperation)
@@ -149,25 +171,27 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
         ?? null
       updateDeepLink(taskId, interactionId)
       if (interactionId) await loadInteraction(interactionId, signal)
+      if (signal?.aborted || selectionVersionRef.current !== selectionVersion) return
       void refreshTaskAuxiliary(taskId, signal)
       return projectedDetail
     } catch (failure: unknown) {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && selectionVersionRef.current === selectionVersion) {
         setTaskDetail(null)
         setError(safeMessage(failure))
       }
       return null
     } finally {
-      if (!signal?.aborted) setLoadingTask(false)
+      if (!signal?.aborted && selectionVersionRef.current === selectionVersion) setLoadingTask(false)
     }
   }, [api, attachOperation, loadInteraction, refreshTaskAuxiliary])
 
   const synchronizeSelectedTask = useCallback(async () => {
     const taskId = selectedTaskIdRef.current
+    const selectionVersion = selectionVersionRef.current
     if (!taskId) return null
     try {
       const detail = await api.task(taskId)
-      if (selectedTaskIdRef.current !== taskId) return null
+      if (selectionVersionRef.current !== selectionVersion) return null
       const projectedDetail = projectKnownTerminalOperations(detail, terminalOperationsRef.current)
       setTaskDetail(projectedDetail)
       setTasks((current) => upsertTask(current, projectedDetail.task))
@@ -176,11 +200,12 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
       if (pending) {
         await loadInteraction(pending.interactionId)
       } else {
+        interactionVersionRef.current += 1
         setInteraction(null)
       }
       return projectedDetail
     } catch (failure: unknown) {
-      setError(safeMessage(failure))
+      if (selectionVersionRef.current === selectionVersion) setError(safeMessage(failure))
       return null
     }
   }, [api, attachOperation, loadInteraction])
@@ -220,6 +245,8 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     void initialize()
     return () => {
       controller.abort()
+      selectionVersionRef.current += 1
+      subscriptionVersionRef.current += 1
       subscriptionRef.current?.close()
     }
   }, [api, openTask])
@@ -257,11 +284,15 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [archived, loading, refreshTasks])
 
   const clearSelection = useCallback(() => {
+    selectionVersionRef.current += 1
+    subscriptionVersionRef.current += 1
+    interactionVersionRef.current += 1
     subscriptionRef.current?.close()
     subscriptionRef.current = null
     operationIdRef.current = null
     selectedTaskIdRef.current = null
     setSelectedTaskId(null)
+    setLoadingTask(false)
     setTaskDetail(null)
     setActivity([])
     setInventory({ skills: [], mcpServers: [] })
@@ -338,7 +369,6 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [api, updateTaskById])
 
   const archiveTaskById = useCallback(async (taskId: string, enabled: boolean) => {
-    const selected = selectedTaskIdRef.current === taskId
     const updated = await updateTaskById(
       enabled ? 'archive-task' : 'unarchive-task',
       taskId,
@@ -346,7 +376,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     )
     if (updated) {
       setTasks((current) => current.filter((task) => task.taskId !== taskId))
-      if (selected) clearSelection()
+      if (selectedTaskIdRef.current === taskId) clearSelection()
       await refreshTasks()
     }
     return updated
@@ -367,10 +397,9 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [api, mutate, openTask])
 
   const deleteTaskById = useCallback(async (taskId: string) => {
-    const selected = selectedTaskIdRef.current === taskId
     await mutate('delete-task', (token) => api.deleteTask(taskId, token))
     setTasks((current) => current.filter((task) => task.taskId !== taskId))
-    if (selected) clearSelection()
+    if (selectedTaskIdRef.current === taskId) clearSelection()
   }, [api, clearSelection, mutate])
 
   const deleteTask = useCallback(() => {
@@ -423,13 +452,14 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     const taskId = selectedTaskIdRef.current
     if (!taskId) return
     await mutate('clear-goal', (token) => api.clearGoal(taskId, token))
-    setGoalState(null)
+    if (selectedTaskIdRef.current === taskId) setGoalState(null)
   }, [api, mutate])
 
   const startReview = useCallback(async (kind: CodexReviewKind, value: string | null) => {
     const taskId = selectedTaskIdRef.current
     if (!taskId) return
     const operation = await mutate('start-review', (token) => api.review(taskId, kind, value, token))
+    if (selectedTaskIdRef.current !== taskId) return
     setTaskDetail((current) => current
       ? { ...current, activeOperation: operation, latestOperation: operation }
       : current)

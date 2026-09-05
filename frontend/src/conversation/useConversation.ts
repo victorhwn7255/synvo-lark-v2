@@ -61,6 +61,7 @@ export function useConversation({
   const [deleteConversationError, setDeleteConversationError] = useState<string | null>(null)
   const [exitingConversationId, setExitingConversationId] = useState<string | null>(null)
   const streamRef = useRef<ConversationSubscription | null>(null)
+  const selectionVersionRef = useRef(0)
   const applyStreamEventRef = useRef<(
     event: ConversationStreamEvent,
     assistantTurnId: string,
@@ -82,28 +83,36 @@ export function useConversation({
     void refreshRecent(controller.signal)
     return () => {
       controller.abort()
+      selectionVersionRef.current += 1
       streamRef.current?.close()
       if (deleteExitTimerRef.current !== null) window.clearTimeout(deleteExitTimerRef.current)
     }
   }, [refreshRecent])
 
   const openConversation = useCallback(async (id: string | null) => {
-    if (activeRun) return
+    if (activeRun || runInFlightRef.current) return
+    const selectionVersion = ++selectionVersionRef.current
     streamRef.current?.close()
     streamRef.current = null
     setSelectedConversation(id)
     setPresentations([])
     setInteractionHandoff(null)
     setConversationError(null)
+    setTurns([])
     if (id === null) {
-      setTurns([])
+      setLoadingConversation(false)
       return
     }
     setLoadingConversation(true)
     try {
       const detail = await api.get(id)
-      setTurns(detail.turns)
+      if (selectionVersionRef.current !== selectionVersion) return
       const reconnect = detail.activeRun
+      // A new EventSource replays from sequence zero, so rebuild the active
+      // answer from its events instead of appending them to the saved prefix.
+      setTurns(detail.turns.map((turn) => turn.turnId === reconnect?.assistantTurnId
+        ? { ...turn, content: '', status: 'PENDING' }
+        : turn))
       if (reconnect?.assistantTurnId) {
         runInFlightRef.current = true
         setActiveRun({
@@ -116,20 +125,22 @@ export function useConversation({
         subscription = api.subscribe(
           reconnect.runId,
           (event) => {
+            if (selectionVersionRef.current !== selectionVersion) return
             applyStreamEventRef.current(event, reconnect.assistantTurnId!)
             if (event.type === 'completed' || event.type === 'failed') subscription?.close()
           },
-          () => setActiveRun((current) => current
+          () => setActiveRun((current) => current && selectionVersionRef.current === selectionVersion
             ? { ...current, phase: 'reconnecting' }
             : current),
         )
         streamRef.current = subscription
       }
     } catch (error: unknown) {
+      if (selectionVersionRef.current !== selectionVersion) return
       setConversationError(safeMessage(error))
       setTurns([])
     } finally {
-      setLoadingConversation(false)
+      if (selectionVersionRef.current === selectionVersion) setLoadingConversation(false)
     }
   }, [activeRun, api])
 

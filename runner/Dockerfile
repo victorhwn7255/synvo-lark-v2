@@ -21,9 +21,13 @@ RUN apt-get update \
     && chmod 0700 /var/lib/synvo-codex /var/lib/synvo-mcp-fixture
 
 COPY --from=codex-runtime /usr/local/bin/node /usr/local/bin/node
-COPY --from=codex-runtime /usr/local/bin/npm /usr/local/bin/npm
-COPY --from=codex-runtime /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=codex-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+# Cross-stage COPY dereferences launcher symlinks; recreate them so npm's
+# relative imports resolve from its package directory.
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && npm --version \
+    && npx --version
 COPY --from=codex-runtime /opt/codex /opt/codex
 COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
 

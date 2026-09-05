@@ -104,6 +104,24 @@ class InteractionRegistryTest(unittest.TestCase):
             self.registry.decide("operation-2", interaction.interaction_id, "accept")
         thread.join(timeout=1)
 
+    def test_discarded_operation_forgets_its_transient_decision_receipt(self) -> None:
+        thread = threading.Thread(target=lambda: self.registry.hold(
+            "old-operation", "workspace-1", "/workspace/private",
+            ServerRequest("request", "item/fileChange/requestApproval", {"grantRoot": "/workspace/private"}),
+        ))
+        thread.start()
+        interaction = self.registry.wait_for_pending("old-operation", timeout_seconds=1)
+        self.registry.decide("old-operation", interaction.interaction_id, "decline")
+        thread.join(timeout=1)
+        self.assertFalse(thread.is_alive())
+        self.registry.decide("old-operation", interaction.interaction_id, "decline")
+
+        self.registry.discard_operation("old-operation")
+
+        self.assertEqual([], self.registry.pending("old-operation"))
+        with self.assertRaises(InteractionConflict):
+            self.registry.decide("old-operation", interaction.interaction_id, "decline")
+
     def test_file_approval_rejects_outside_or_unbounded_path_sets(self) -> None:
         with self.assertRaises(UnsupportedInteraction):
             self.registry.hold(

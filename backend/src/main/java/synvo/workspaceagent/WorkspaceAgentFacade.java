@@ -5,7 +5,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1378,7 +1377,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		private final String operationReference;
 		private final ConversationObserver observer;
 		private final Deque<ActivityView> events = new ArrayDeque<>();
-		private final Map<UUID, PendingRuntimeInteraction> interactions = new HashMap<>();
+		private final Map<UUID, PendingRuntimeInteraction> interactions = new ConcurrentHashMap<>();
 		private final StringBuilder answer = new StringBuilder();
 		private final CountDownLatch terminal = new CountDownLatch(1);
 		private long lastSequence = -1;

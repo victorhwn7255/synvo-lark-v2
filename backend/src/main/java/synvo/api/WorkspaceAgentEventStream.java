@@ -3,12 +3,13 @@ package synvo.api;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import synvo.workspaceagent.WorkspaceAgentEventPublisher;
@@ -21,8 +22,9 @@ final class WorkspaceAgentEventStream implements WorkspaceAgentEventPublisher {
 
 	private static final long EMITTER_TIMEOUT_MILLIS = Duration.ofMinutes(30).toMillis();
 
-	private final Map<UUID, Object> operationLocks = new HashMap<>();
-	private final Map<UUID, List<Subscriber>> subscribers = new HashMap<>();
+	// Bound lock retention; different stripes still share a concurrent subscriber index.
+	private final Object[] operationLocks = IntStream.range(0, 64).mapToObj(ignored -> new Object()).toArray();
+	private final Map<UUID, List<Subscriber>> subscribers = new ConcurrentHashMap<>();
 
 	SseEmitter subscribe(
 			UUID operationId,
@@ -131,8 +133,8 @@ final class WorkspaceAgentEventStream implements WorkspaceAgentEventPublisher {
 		}
 	}
 
-	private synchronized Object lockFor(UUID operationId) {
-		return operationLocks.computeIfAbsent(operationId, ignored -> new Object());
+	private Object lockFor(UUID operationId) {
+		return operationLocks[Math.floorMod(operationId.hashCode(), operationLocks.length)];
 	}
 
 	private void remove(UUID operationId, Subscriber subscriber) {

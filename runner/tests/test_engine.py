@@ -478,6 +478,78 @@ class CodexEngineTest(unittest.TestCase):
         )
         self.assertNotEqual(operation.operation_id, next_operation.operation_id)
 
+    def test_unrelated_thread_notifications_cannot_write_or_finish_active_work(self) -> None:
+        operation = self.engine.start_turn(
+            "engine-thread-1", self.workspace, RunMode.READ_ONLY, "Inspect", "low"
+        )
+        self._wait_for_call("turn/start")
+        self.client.emit("item/agentMessage/delta", {
+            "threadId": "other-thread", "turnId": "other-turn",
+            "itemId": "other-item", "delta": "unrelated answer",
+        })
+        self.client.emit("turn/completed", {
+            "threadId": "other-thread", "turn": {"id": "other-turn", "status": "completed"},
+        })
+        self.assertFalse(operation.terminal)
+        self.assertEqual([], operation.events(-1))
+
+    def test_early_notifications_wait_for_the_matching_start_response(self) -> None:
+        original_request = self.client.request
+        def request(method, params, **kwargs):
+            if method == "turn/start":
+                self.client.emit("turn/completed", {
+                    "threadId": "engine-thread-1",
+                    "turn": {"id": "previous-turn", "status": "completed"},
+                })
+                self.client.emit("item/agentMessage/delta", {
+                    "threadId": "engine-thread-1", "turnId": "engine-turn-1",
+                    "itemId": "item-1", "delta": "current answer",
+                })
+            return original_request(method, params, **kwargs)
+        self.client.request = request
+        operation = self.engine.start_turn(
+            "engine-thread-1", self.workspace, RunMode.READ_ONLY, "Inspect", "low"
+        )
+        self._wait_for_call("turn/start")
+        self.client.emit("turn/completed", {
+            "threadId": "engine-thread-1",
+            "turn": {"id": "engine-turn-1", "status": "completed"},
+        })
+        self.assertTrue(operation.wait_terminal(timeout_seconds=1))
+        events = operation.events(-1)
+        self.assertEqual("current answer", events[0]["payload"].get("text"))
+        self.assertEqual(1, sum(event["terminal"] for event in events))
+
+    def test_completed_operation_replay_is_bounded_without_evicting_active_work(self) -> None:
+        operations = []
+        for _ in range(52):
+            operation = self.engine.start_turn(
+                "engine-thread-1", self.workspace, RunMode.READ_ONLY, "Inspect", "low"
+            )
+            operation.publish("turn_completed", {"status": "completed"}, terminal=True)
+            operations.append(operation)
+        with self.assertRaises(EngineFailure):
+            self.engine.operation(operations[0].operation_id)
+        self.assertIs(operations[-1], self.engine.operation(operations[-1].operation_id))
+        active = self.engine.start_turn(
+            "engine-thread-1", self.workspace, RunMode.READ_ONLY, "Inspect", "low"
+        )
+        self.assertIs(active, self.engine.operation(active.operation_id))
+        self.assertFalse(active.terminal)
+
+    def test_interaction_from_another_thread_is_not_assigned_to_active_work(self) -> None:
+        operation = self.engine.start_turn(
+            "engine-thread-1", self.workspace, RunMode.READ_ONLY, "Inspect", "low"
+        )
+        self._wait_for_call("turn/start")
+        with self.assertRaises(EngineFailure):
+            self.client.server_request(ServerRequest("other-request", "item/fileChange/requestApproval", {
+                "threadId": "other-thread", "turnId": "other-turn",
+                "grantRoot": "/workspace/private",
+            }))
+        self.assertEqual([], self.engine.pending_interactions(operation.operation_id))
+        self.assertFalse(operation.terminal)
+
     def test_streamed_message_never_exposes_a_workspace_path_split_across_deltas(self) -> None:
         operation = self.engine.start_turn(
             "engine-thread-1", self.workspace, RunMode.READ_ONLY, "Inspect", "low"
