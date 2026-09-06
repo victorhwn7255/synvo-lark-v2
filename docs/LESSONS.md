@@ -1480,3 +1480,61 @@ prefix again. Test reversed response ordering and early/stale terminal events.
 - `frontend/src/codex/CodexWorkspace.test.tsx`
 - `runner/synvo_runner/engine.py`
 - `runner/tests/test_engine.py`
+
+## 2026-09-06 — Preview fixtures and asynchronous refreshes must respect event authority
+
+### Symptom
+
+The local prototype received activity but showed zero milestones. Later,
+interaction verification exposed a pending drawer disappearing during task
+synchronization. The live decision test then rejected a successful acknowledgement.
+
+### Root cause
+
+The prototype emitted lowercase activity names while production consumed the
+uppercase normalized contract. Separately, a task response with no pending
+interaction was treated as authority to discard an independently loaded
+interaction. The receipt check copied an older mock status `RESOLVED`, but the
+actual backend returns `DECIDED` after applying a user decision.
+
+### Why it was missed
+
+Visual fixtures were not checked against the real activity projection. Fast
+successful reads hid the difference between task metadata and the authoritative
+interaction record. Existing decision mocks were not checked against the
+backend response before their values became presentation acceptance conditions.
+
+### Resolution
+
+Use the normalized vocabulary and real terminal shape in fixtures and test them
+against the production projection. Guard refreshes with interaction generation,
+recheck the current interaction when task metadata omits it, and initialize
+form values synchronously under their interaction identity. Match the real
+`DECIDED` response and reject unknown/expired statuses. Keep exact decision
+receipts dependent on an identity-matched resolved decision API acknowledgement.
+
+### Preventive rule
+
+A preview must exercise the same semantic contract as production. Verify
+response status values in the authoritative producer, not an existing mock. A missing
+entry in another resource is not confirmation that an interaction resolved.
+Do not discard pending input or infer a successful decision from absence.
+
+### Verification
+
+- `design/prototype/src/demo.test.ts`: five synthetic fixture/projection cases.
+- `CodexWorkspace.test.tsx`: pending metadata omission/recheck, acknowledged
+  receipts, ambiguity, replacement, selection, CSRF and terminal metadata races.
+- `CodexInteractionDrawer.test.tsx`: preserved fields on refresh and isolated
+  defaults for replacement interactions.
+- Complete frontend suite passed 169 tests on 2026-09-06, including the five
+  local prototype regressions; typecheck, lint and both builds passed.
+- Authenticated desktop Lark completed the fixed MCP fixture with two one-time
+  acknowledgements and two corresponding receipts after the contract correction.
+
+### Relevant areas
+
+- `frontend/src/codex/activityPresentation.ts`
+- `frontend/src/codex/useCodexWorkspace.ts`
+- `frontend/src/codex/CodexInteractionDrawer.tsx`
+- `frontend/design/prototype/src/demo.ts`

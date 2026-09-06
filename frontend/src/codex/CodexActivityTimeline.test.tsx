@@ -1,10 +1,38 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CodexActivity, CodexInteraction } from '../api/codex'
 import { CodexActivityTimeline } from './CodexActivityTimeline'
 
 describe('CodexActivityTimeline', () => {
-  afterEach(cleanup)
+  afterEach(() => { cleanup(); vi.useRealTimers() })
+
+  it('ticks elapsed wall time only with a valid attachment and stops without inventing a terminal time', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-05T12:00:10Z'))
+    const props = { active: true, operationStatus: 'RUNNING' as const, reconnecting: false, interaction: null, activity: [] }
+    const { rerender, unmount } = render(<CodexActivityTimeline {...props} />)
+    expect(screen.queryByText(/Elapsed/)).not.toBeInTheDocument()
+    rerender(<CodexActivityTimeline {...props} operationId="first" startedAt="2026-09-05T12:00:00Z" />)
+    expect(screen.getByText('Elapsed 10s').closest('[aria-live]')).toBeNull()
+    act(() => vi.advanceTimersByTime(2500))
+    expect(screen.getByText('Elapsed 12s')).toBeInTheDocument()
+    rerender(<CodexActivityTimeline {...props} operationId="first" startedAt="2026-09-05T12:00:00Z" operationStatus="COMPLETED" />)
+    expect(screen.queryByText(/Elapsed/)).not.toBeInTheDocument()
+    expect(vi.getTimerCount()).toBe(0)
+    rerender(<CodexActivityTimeline {...props} operationId="first" startedAt="2026-09-05T12:00:00Z" operationStatus="COMPLETED" terminalAt="2026-09-05T12:00:11Z" />)
+    expect(screen.getByText('Elapsed 11s')).toBeInTheDocument()
+    rerender(<CodexActivityTimeline {...props} operationId="second" startedAt="2026-09-05T12:00:12Z" />)
+    expect(screen.getByText('Elapsed 0s')).toBeInTheDocument()
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['invalid', '2099-01-01T00:00:00Z'])('hides invalid/future operation time: %s', (startedAt) => {
+    vi.useFakeTimers()
+    render(<CodexActivityTimeline active operationStatus="RUNNING" reconnecting={false} interaction={null} activity={[]} startedAt={startedAt} />)
+    expect(screen.queryByText(/Elapsed/)).not.toBeInTheDocument()
+    expect(vi.getTimerCount()).toBe(0)
+  })
 
   it('projects ordered normalized events into compact semantic milestones', () => {
     render(
@@ -27,17 +55,17 @@ describe('CodexActivityTimeline', () => {
     )
 
     const timeline = screen.getByRole('region', { name: 'Agent activity' })
-    expect(within(timeline).getByText('Codex is working')).toBeInTheDocument()
-    expect(within(timeline).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    expect(within(timeline).getByText('Working in the workspace', { selector: 'strong' })).toBeInTheDocument()
+    expect(within(timeline).getAllByRole('listitem').map((item) => item.querySelector('div')?.textContent)).toEqual([
       expect.stringContaining('Task started'),
-      expect.stringContaining('Analyzing the taskChecking the project boundaries.'),
-      expect.stringContaining('Working in the workspace1 command'),
+      expect.stringContaining('Analysis in progressChecking the project boundaries.'),
+      expect.stringContaining('Workspace activity in progressWorkspace commands: 1'),
     ])
     expect(within(timeline).getAllByRole('listitem')[0]).toHaveAttribute('data-status', 'completed')
     expect(within(timeline).queryByText(/duplicated response fragment/)).not.toBeInTheDocument()
     expect(within(timeline).queryByText(/unrestricted command output/)).not.toBeInTheDocument()
-    expect(within(timeline).getByText('8 normalized events summarized. Safe technical details remain available in Task details.')).toBeInTheDocument()
-    expect(within(timeline).getByText('Activity and model-provided summaries—not private chain-of-thought.')).toBeInTheDocument()
+    expect(within(timeline).queryByText(/normalized events/)).not.toBeInTheDocument()
+    expect(within(timeline).getByText('Model-provided summary; private reasoning is not shown.')).toBeInTheDocument()
   })
 
   it('makes an H5 approval request the current actionable step without exposing detail', () => {
@@ -55,9 +83,9 @@ describe('CodexActivityTimeline', () => {
     )
 
     const timeline = screen.getByRole('region', { name: 'Agent activity' })
-    expect(within(timeline).getByText('Needs your approval')).toBeInTheDocument()
+    expect(within(timeline).getByText('Action required', { selector: 'strong' })).toBeInTheDocument()
     expect(within(timeline).getByText('Review file change')).toBeInTheDocument()
-    expect(within(timeline).getByText('Change one bounded workspace file.')).toBeInTheDocument()
+    expect(within(timeline).queryByText('Change one bounded workspace file.')).not.toBeInTheDocument()
     expect(within(timeline).getByText('Review in the approval panel')).toBeInTheDocument()
   })
 
@@ -114,14 +142,14 @@ describe('CodexActivityTimeline', () => {
 
     const toggle = screen.getByRole('button', { name: 'Show agent activity' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByText('Completed · 3 milestones')).toBeInTheDocument()
+    expect(screen.getByText('3 milestones')).toBeInTheDocument()
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
 
     fireEvent.click(toggle)
 
     expect(screen.getByRole('button', { name: 'Hide agent activity' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
-    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText('Completed', { selector: 'li strong' })).toBeInTheDocument()
   })
 
   it('shows a terminal milestone from persisted operation status during an activity replay race', () => {
@@ -135,9 +163,9 @@ describe('CodexActivityTimeline', () => {
       />,
     )
 
-    expect(screen.getByText('Completed · 2 milestones')).toBeInTheDocument()
+    expect(screen.getByText('2 milestones')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Show agent activity' }))
-    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    expect(screen.getAllByRole('listitem').map((item) => item.querySelector('div')?.textContent)).toEqual([
       'Task started',
       'Completed',
     ])
@@ -179,13 +207,13 @@ describe('CodexActivityTimeline', () => {
     const timeline = screen.getByRole('region', { name: 'Agent activity' })
     const milestones = within(timeline).getAllByRole('listitem')
     expect(milestones).toHaveLength(6)
-    expect(within(timeline).getByText('Analysis completed')).toBeInTheDocument()
-    expect(within(timeline).getByText('Workspace work completed')).toBeInTheDocument()
-    expect(within(timeline).getByText('9 commands · 1 MCP tool')).toBeInTheDocument()
-    expect(within(timeline).getByText('Workspace files updated')).toBeInTheDocument()
-    expect(within(timeline).getByText('1 file operation')).toBeInTheDocument()
-    expect(within(timeline).getByText('10 approvals resolved')).toBeInTheDocument()
-    expect(within(timeline).getByText('56 normalized events summarized. Safe technical details remain available in Task details.')).toBeInTheDocument()
+    expect(within(timeline).getByText('Analysis finished')).toBeInTheDocument()
+    expect(within(timeline).getByText('Workspace activity finished')).toBeInTheDocument()
+    expect(within(timeline).getByText('Workspace commands: 9 · Connected tools: 1')).toBeInTheDocument()
+    expect(within(timeline).getByText('File activity finished')).toBeInTheDocument()
+    expect(within(timeline).getByText('File operations: 1')).toBeInTheDocument()
+    expect(within(timeline).getByText('10 decisions resolved')).toBeInTheDocument()
+    expect(within(timeline).queryByText(/normalized events/)).not.toBeInTheDocument()
     expect(within(timeline).queryByText('Reasoning completed')).not.toBeInTheDocument()
     expect(within(timeline).queryByText('Decision applied')).not.toBeInTheDocument()
     expect(within(timeline).queryByText('Workspace command completed')).not.toBeInTheDocument()
@@ -207,7 +235,7 @@ describe('CodexActivityTimeline', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Hide agent activity' })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getAllByText('Codex unavailable')).toHaveLength(2)
+    expect(screen.getAllByText('Codex unavailable', { selector: 'strong' })).toHaveLength(2)
   })
 })
 

@@ -213,11 +213,11 @@ describe('Workspace', () => {
 
     Object.defineProperty(composer, 'scrollHeight', { configurable: true, value: 280 })
     fireEvent.change(composer, { target: { value: 'A very long prompt that needs the capped composer height.' } })
-    expect(composer).toHaveStyle({ height: '200px', overflowY: 'auto' })
+    expect(composer).toHaveStyle({ height: '120px', overflowY: 'auto' })
 
     Object.defineProperty(composer, 'scrollHeight', { configurable: true, value: 24 })
     fireEvent.change(composer, { target: { value: 'Short again' } })
-    expect(composer).toHaveStyle({ height: '44px', overflowY: 'hidden' })
+    expect(composer).toHaveStyle({ height: '32px', overflowY: 'hidden' })
   })
 
   it('reveals every new prompt and follows streaming only while the user stays near the bottom', async () => {
@@ -434,10 +434,10 @@ describe('Workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
 
-    expect(screen.getByRole('heading', { name: 'Sources and permissions' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Knowledge Sources' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Lark Permissions' })).toBeInTheDocument()
-    expect(screen.getByText('One configured Drive folder')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connection and workspace access' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Knowledge Sources' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument()
+    expect(screen.getByText('Workspace information unavailable.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect Synvo' }))
     expect(onSignOut).toHaveBeenCalledOnce()
   })
@@ -509,7 +509,7 @@ describe('Workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(workspace).toHaveAttribute('data-sidebar-collapsed', 'true')
-    expect(screen.getByRole('heading', { name: 'Sources and permissions' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connection and workspace access' })).toBeInTheDocument()
   })
 })
 

@@ -1,3 +1,4 @@
+import synvoLogo from '../../assets/logo.jpg'
 import type { BotConnection, LarkConnection } from '../api/lark'
 import { StatusChip } from './StatusChip'
 
@@ -42,7 +43,7 @@ export function ConnectionPage({
 
       <header className="site-header">
         <a className="brand" href="#main" aria-label="Synvo AI Assistant home">
-          <span className="brand__mark" aria-hidden="true"><span /><span /></span>
+          <img className="brand__mark" src={synvoLogo} alt="" />
           <span><strong>Synvo</strong><small>AI Assistant</small></span>
         </a>
         <StatusChip label={insideLark ? 'Running in Lark' : 'Browser preview'} tone={insideLark ? 'positive' : 'neutral'} />

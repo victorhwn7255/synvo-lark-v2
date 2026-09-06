@@ -16,9 +16,9 @@ import type {
   CodexOperation,
   CodexReviewKind,
   CodexRunMode,
-  CodexStatus,
   CodexTaskDetail,
 } from '../api/codex'
+import { useModalFocus } from '../workspace/useModalFocus'
 import { CheckIcon, CloseIcon } from '../workspace/visuals'
 
 const DEFAULT_PANEL_WIDTH = 480
@@ -35,8 +35,8 @@ export interface CodexSteeringUpdate {
 }
 
 export function CodexTaskPanel({
-  status,
   taskDetail,
+  modal = false,
   activity,
   inventory,
   goal,
@@ -51,14 +51,12 @@ export function CodexTaskPanel({
   onModeChange,
   onFork,
   onDelete,
-  onSteer,
-  onStopOperation,
   onUpdateGoal,
   onClearGoal,
   onStartReview,
 }: {
-  status: CodexStatus | null
   taskDetail: CodexTaskDetail
+  modal?: boolean
   activity: CodexActivity[]
   inventory: CodexInventory
   goal: CodexGoal | null
@@ -73,17 +71,15 @@ export function CodexTaskPanel({
   onModeChange: (mode: CodexRunMode) => Promise<void>
   onFork: (title: string) => Promise<void>
   onDelete: () => Promise<void>
-  onSteer: (content: string) => Promise<void>
-  onStopOperation: () => Promise<void>
   onUpdateGoal: (objective: string, command: CodexGoalCommand) => Promise<void>
   onClearGoal: () => Promise<void>
   onStartReview: (kind: CodexReviewKind, value: string | null) => Promise<void>
 }) {
+  const panelRef = useRef<HTMLElement>(null)
+  useModalFocus(panelRef, modal, onClose)
   const task = taskDetail.task
   const operation = taskDetail.activeOperation ?? taskDetail.latestOperation
   const [title, setTitle] = useState(task.title)
-  const [steering, setSteering] = useState('')
-  const [steeringFeedback, setSteeringFeedback] = useState<'sending' | 'sent' | 'failed' | null>(null)
   const [objective, setObjective] = useState(goal?.objective ?? '')
   const [reviewKind, setReviewKind] = useState<CodexReviewKind>('UNCOMMITTED_CHANGES')
   const [reviewValue, setReviewValue] = useState('')
@@ -91,7 +87,6 @@ export function CodexTaskPanel({
   const [goalFeedback, setGoalFeedback] = useState<'saved' | 'resumed' | 'paused' | 'cleared' | null>(null)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
   const [resizeStart, setResizeStart] = useState<{ pointerX: number; width: number } | null>(null)
-  const steeringRequestRef = useRef(0)
   const busy = submitting !== null
   const goalObjective = goal?.objective.trim() ?? ''
   const objectiveValue = objective.trim()
@@ -106,11 +101,6 @@ export function CodexTaskPanel({
   useEffect(() => setObjective(goal?.objective ?? ''), [goal?.objective])
   useEffect(() => setGoalFeedback(null), [task.taskId])
   useEffect(() => setGoalFeedback(null), [operation?.operationId])
-  useEffect(() => {
-    steeringRequestRef.current += 1
-    setSteering('')
-    setSteeringFeedback(null)
-  }, [task.taskId, taskDetail.activeOperation?.operationId])
   useEffect(() => {
     if (!resizeStart) return
     const previousCursor = document.body.style.cursor
@@ -133,28 +123,11 @@ export function CodexTaskPanel({
     }
   }, [resizeStart])
 
-  const submitSteering = async (event: FormEvent) => {
-    event.preventDefault()
-    const content = steering.trim()
-    if (!content || steeringFeedback === 'sending') return
-    const request = ++steeringRequestRef.current
-    setSteeringFeedback('sending')
-    try {
-      await onSteer(content)
-      if (steeringRequestRef.current !== request) return
-      setSteering('')
-      setSteeringFeedback('sent')
-    } catch {
-      if (steeringRequestRef.current !== request) return
-      setSteeringFeedback('failed')
-    }
-  }
-
   const submitReview = (event: FormEvent) => {
     event.preventDefault()
     const needsValue = reviewKind !== 'UNCOMMITTED_CHANGES'
     if (needsValue && !reviewValue.trim()) return
-    void onStartReview(reviewKind, needsValue ? reviewValue.trim() : null)
+    void onStartReview(reviewKind, needsValue ? reviewValue.trim() : null).catch(() => {})
   }
 
   const updateGoal = async (command: CodexGoalCommand) => {
@@ -202,6 +175,10 @@ export function CodexTaskPanel({
 
   return (
     <aside
+      ref={panelRef}
+      role={modal ? 'dialog' : undefined}
+      aria-modal={modal || undefined}
+      tabIndex={-1}
       id="codex-task-panel"
       className="workspace-artifact-panel codex-task-panel"
       aria-label="Codex task details"
@@ -228,59 +205,34 @@ export function CodexTaskPanel({
           <p>{task.workspaceName}</p>
           <h2>Task details</h2>
         </div>
-        <button className="workspace-icon-button codex-task-panel__close" type="button" aria-label="Close task details" onClick={onClose}>
-          <CloseIcon />
+        <button className="workspace-icon-button codex-task-panel__close" type="button" aria-label="Close task details" data-modal-initial onClick={onClose}>
+          <CloseIcon /><span>Close</span>
         </button>
       </div>
 
       <div className="codex-task-panel__scroll workspace-themed-scrollbar">
         {error && <div className="codex-inline-error" role="alert">{error}</div>}
 
-        <section className="codex-panel-section" aria-labelledby="codex-account-title">
-          <h3 id="codex-account-title">Runtime</h3>
-          <dl>
-            <div><dt>Status</dt><dd>{status?.state ?? 'Checking'}</dd></div>
-            <div><dt>Model</dt><dd>{status?.model ?? '—'}</dd></div>
-            <div><dt>Account</dt><dd>{status?.account?.plan ?? status?.account?.authentication ?? '—'}</dd></div>
-            {status?.account?.usedPercent !== null && status?.account?.usedPercent !== undefined && (
-              <div><dt>Usage</dt><dd>{status.account.usedPercent}%</dd></div>
-            )}
-          </dl>
+        <section className="codex-panel-section" aria-labelledby="codex-operation-title">
+          <h3 id="codex-operation-title">Current activity</h3>
+          <div
+            className="codex-operation-status"
+            data-status={operationPresentation.status}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="codex-operation-status__indicator" aria-hidden="true" />
+            <div>
+              <strong>{operationPresentation.title}</strong>
+              <p>{operationPresentation.description}</p>
+            </div>
+          </div>
         </section>
 
-        <section className="codex-panel-section" aria-labelledby="codex-task-management-title">
-          <h3 id="codex-task-management-title">Task management</h3>
-          <div className="codex-field-action">
-            <label className="codex-panel-field">
-              <span>Title</span>
-              <input value={title} maxLength={160} disabled={busy || Boolean(taskDetail.activeOperation)} onChange={(event) => setTitle(event.target.value)} />
-            </label>
-            <button type="button" disabled={busy || !title.trim() || title.trim() === task.title || Boolean(taskDetail.activeOperation)} onClick={() => void onRename(title.trim())}>Rename</button>
-          </div>
-          <label className="codex-panel-field">
-            <span>Access mode</span>
-            <span className="codex-panel-select-wrap">
-              <select className="codex-panel-select" value={task.mode} disabled={busy || Boolean(taskDetail.activeOperation)} onChange={(event) => void onModeChange(event.target.value as CodexRunMode)}>
-                <option value="READ_ONLY">Read Only</option>
-                <option value="WORKSPACE_WRITE">Full Edit</option>
-              </select>
-              <SelectChevronIcon />
-            </span>
-          </label>
-          <div className="codex-button-row codex-button-row--task-actions" role="group" aria-label="Task actions">
-            <button type="button" disabled={busy} onClick={() => void onPin(!task.pinned)}>{task.pinned ? 'Unpin' : 'Pin'}</button>
-            <button type="button" disabled={busy || Boolean(taskDetail.activeOperation)} onClick={() => void onArchive(!task.archived)}>{task.archived ? 'Unarchive' : 'Archive'}</button>
-            <button type="button" disabled={busy || Boolean(taskDetail.activeOperation)} onClick={() => void onFork(`Fork of ${task.title}`)}>Fork</button>
-          </div>
-          {confirmDelete ? (
-            <div className="codex-delete-confirm" role="alert">
-              <span>Delete this task permanently?</span>
-              <button type="button" disabled={busy} onClick={() => void onDelete()}>Delete task</button>
-              <button type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep task</button>
-            </div>
-          ) : (
-            <button className="codex-danger-action" type="button" disabled={busy || Boolean(taskDetail.activeOperation)} onClick={() => setConfirmDelete(true)}>Delete task…</button>
-          )}
+        <section className="codex-panel-section" aria-labelledby="codex-workspace-title">
+          <h3 id="codex-workspace-title">Workspace &amp; access</h3>
+          <p>{task.workspaceName} · {task.mode === 'READ_ONLY' ? 'Read Only' : 'Edit workspace files'}</p>
+          <p className="codex-panel-empty">Work stays inside this configured workspace. External access remains blocked.</p>
         </section>
 
         <section className="codex-panel-section codex-goal" aria-labelledby="codex-goal-title">
@@ -293,6 +245,9 @@ export function CodexTaskPanel({
               {goalDirty && goal ? 'Unsaved changes' : goalPresentation?.label ?? 'Not set'}
             </span>
           </div>
+          <p className="codex-goal__summary">{goal?.objective ?? 'No persistent goal set.'}</p>
+          <details className="codex-goal__edit">
+            <summary>Edit goal</summary>
           {goal && !goalDirty && (
             <div className="codex-goal__state-card" data-state={goalPresentation?.tone} role="status">
               <span className="codex-goal__state-icon" aria-hidden="true">
@@ -345,70 +300,54 @@ export function CodexTaskPanel({
               {goalFeedbackMessage(goalFeedback)}
             </p>
           )}
+          <div className="codex-goal__next-step">
+            <strong>What happens next?</strong>
+            <p>{goalPresentation?.nextStep ?? 'Set a goal when this task needs a durable outcome across multiple messages.'}</p>
+          </div>
+          </details>
           {goal && (
             <dl className="codex-goal__metrics" aria-label="Goal progress">
               <div><dt>Tracked usage</dt><dd>{goal.tokensUsed.toLocaleString()} tokens</dd></div>
               <div><dt>Active time</dt><dd>{duration(goal.timeUsedSeconds)}</dd></div>
             </dl>
           )}
-          <div className="codex-goal__next-step">
-            <strong>What happens next?</strong>
-            <p>{goalPresentation?.nextStep ?? 'Set a goal when this task needs a durable outcome across multiple messages.'}</p>
-          </div>
         </section>
 
-        <section className="codex-panel-section" aria-labelledby="codex-operation-title">
-          <h3 id="codex-operation-title">Current activity</h3>
-          <div
-            className="codex-operation-status"
-            data-status={operationPresentation.status}
-            role="status"
-            aria-live="polite"
-          >
-            <span className="codex-operation-status__indicator" aria-hidden="true" />
-            <div>
-              <strong>{operationPresentation.title}</strong>
-              <p>{operationPresentation.description}</p>
-            </div>
+        <details className="codex-panel-section codex-task-actions">
+          <summary>Task actions</summary>
+          <div className="codex-field-action">
+            <label className="codex-panel-field">
+              <span>Title</span>
+              <input value={title} maxLength={160} disabled={busy || Boolean(taskDetail.activeOperation)} onChange={(event) => setTitle(event.target.value)} />
+            </label>
+            <button type="button" disabled={busy || !title.trim() || title.trim() === task.title || Boolean(taskDetail.activeOperation)} onClick={() => void onRename(title.trim()).catch(() => {})}>Rename</button>
           </div>
-          {taskDetail.activeOperation && (
-            <>
-              <form className="codex-inline-form" aria-busy={steeringFeedback === 'sending'} onSubmit={(event) => void submitSteering(event)}>
-                <label>
-                  <span>Steer active work</span>
-                  <textarea
-                    value={steering}
-                    rows={2}
-                    maxLength={20_000}
-                    disabled={busy}
-                    aria-describedby={steeringFeedback ? 'codex-steering-feedback' : undefined}
-                    onChange={(event) => {
-                      setSteering(event.target.value)
-                      if (steeringFeedback !== 'sending') setSteeringFeedback(null)
-                    }}
-                  />
-                </label>
-                <button type="submit" disabled={busy || !steering.trim()}>
-                  {steeringFeedback === 'sending' ? 'Sending…' : 'Send steering'}
-                </button>
-              </form>
-              {steeringFeedback && (
-                <div
-                  id="codex-steering-feedback"
-                  className="codex-steering-feedback"
-                  data-state={steeringFeedback}
-                  role={steeringFeedback === 'failed' ? 'alert' : 'status'}
-                >
-                  {steeringFeedback === 'sent' && <span aria-hidden="true"><CheckIcon /></span>}
-                  <div>
-                    <strong>{steeringFeedbackTitle(steeringFeedback)}</strong>
-                    <p>{steeringFeedbackMessage(steeringFeedback)}</p>
-                  </div>
-                </div>
-              )}
-              <button type="button" disabled={busy} onClick={() => void onStopOperation()}>Stop current work</button>
-            </>
+          <label className="codex-panel-field">
+            <span>Access mode</span>
+            <span className="codex-panel-select-wrap">
+              <select className="codex-panel-select" value={task.mode} disabled={busy || Boolean(taskDetail.activeOperation)} onChange={(event) => void onModeChange(event.target.value as CodexRunMode).catch(() => {})}>
+                <option value="READ_ONLY">Read Only</option>
+                <option value="WORKSPACE_WRITE">Edit workspace files</option>
+              </select>
+              <SelectChevronIcon />
+            </span>
+          </label>
+          <div className="codex-button-row codex-button-row--task-actions" role="group" aria-label="Task actions">
+            <button type="button" disabled={busy} onClick={() => void onPin(!task.pinned).catch(() => {})}>{task.pinned ? 'Unpin' : 'Pin'}</button>
+            <button type="button" disabled={busy || Boolean(taskDetail.activeOperation)} onClick={() => void onArchive(!task.archived).catch(() => {})}>{task.archived ? 'Unarchive' : 'Archive'}</button>
+            <button type="button" disabled={busy || Boolean(taskDetail.activeOperation)} onClick={() => void onFork(`Fork of ${task.title}`).catch(() => {})}>Fork</button>
+          </div>
+          {confirmDelete ? (
+            <div className="codex-delete-confirm" role="alert">
+              <span>Delete this task permanently?</span>
+              <button type="button" disabled={busy} onClick={() => void onDelete().catch(() => {})}>Delete task</button>
+              <button type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep task</button>
+            </div>
+          ) : (
+            <button className="codex-danger-action" type="button" disabled={busy || Boolean(taskDetail.activeOperation)} onClick={() => setConfirmDelete(true)}>Delete task…</button>
           )}
+        </details>
+
           <section className="codex-steering-history" aria-labelledby="codex-steering-history-title">
             <div className="codex-steering-history__header">
               <div>
@@ -444,7 +383,6 @@ export function CodexTaskPanel({
             )}
             <p className="codex-steering-history__privacy">Available only in this signed-in H5 session. Never include credentials or sensitive file contents.</p>
           </section>
-        </section>
 
         <details className="codex-panel-section codex-technical-activity">
           <summary>
@@ -454,7 +392,7 @@ export function CodexTaskPanel({
             </span>
             <SelectChevronIcon />
           </summary>
-          <p className="codex-technical-activity__intro">Safe normalized protocol detail for diagnostics.</p>
+          <p className="codex-technical-activity__intro">Normalized events for diagnostics. Activity and model-provided summaries; private reasoning is not shown.</p>
           {presentedActivity.length === 0 ? <p className="codex-panel-empty">No activity to display.</p> : (
             <ol className="codex-activity-list">
               {presentedActivity.map((item) => (
@@ -522,18 +460,6 @@ function SelectChevronIcon() {
   )
 }
 
-function steeringFeedbackTitle(feedback: 'sending' | 'sent' | 'failed') {
-  if (feedback === 'sending') return 'Sending your update…'
-  if (feedback === 'sent') return 'Steering sent'
-  return 'Steering wasn’t sent'
-}
-
-function steeringFeedbackMessage(feedback: 'sending' | 'sent' | 'failed') {
-  if (feedback === 'sending') return 'Keep this panel open while Synvo delivers your instruction to Codex.'
-  if (feedback === 'sent') return 'Codex accepted your update and will apply it to the current task.'
-  return 'Your instruction is still in the box. Review the error above and try again.'
-}
-
 function steeringPreview(content: string) {
   const normalized = content.replace(/\s+/g, ' ').trim()
   return normalized.length <= 120 ? normalized : `${normalized.slice(0, 119).trimEnd()}…`
@@ -596,7 +522,7 @@ function describeOperation(operation: CodexOperation | null, reconnecting: boole
   return {
     status: 'running',
     title: operation.type === 'REVIEW' ? 'Codex is reviewing' : 'Codex is working',
-    description: 'You can send an update below or stop the current work.',
+    description: 'Update instructions or stop from the conversation composer.',
   }
 }
 

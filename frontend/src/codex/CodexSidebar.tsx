@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type RefObject } from 'react'
+import { useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useModalFocus } from '../workspace/useModalFocus'
 import type { CodexTask } from '../api/codex'
 import {
   ArchiveIcon,
@@ -17,6 +18,7 @@ import {
 
 export function CodexSidebar({
   collapsed,
+  modal = false,
   settingsActive,
   tasks,
   selectedTaskId,
@@ -35,6 +37,7 @@ export function CodexSidebar({
   onOpenSettings,
 }: {
   collapsed: boolean
+  modal?: boolean
   settingsActive: boolean
   tasks: CodexTask[]
   selectedTaskId: string | null
@@ -52,6 +55,8 @@ export function CodexSidebar({
   onArchivedChange: (archived: boolean) => void
   onOpenSettings: () => void
 }) {
+  const navigationRef = useRef<HTMLElement>(null)
+  useModalFocus(navigationRef, modal, onToggle)
   const [renamingTaskId, setRenamingTaskId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null)
@@ -83,14 +88,15 @@ export function CodexSidebar({
   }
 
   return (
-    <aside className="workspace-sidebar" aria-label="Synvo AI Assistant task navigation">
+    <aside ref={navigationRef} id="codex-navigation" tabIndex={-1} role={modal ? 'dialog' : undefined} aria-modal={modal || undefined} className="workspace-sidebar" aria-label="Synvo AI Assistant task navigation">
       <div className="workspace-sidebar__brand">
         <SynvoLogo />
         <strong className="workspace-sidebar__label">Synvo AI Assistant</strong>
         <button
           className="workspace-icon-button workspace-sidebar__collapse"
           type="button"
-          aria-label={collapsed ? 'Expand sidebar' : 'Hide sidebar'}
+          aria-label={modal ? 'Close navigation' : collapsed ? 'Expand sidebar' : 'Hide sidebar'}
+          data-modal-initial
           onClick={onToggle}
         >
           <PanelLeftIcon />

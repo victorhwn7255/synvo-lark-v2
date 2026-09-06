@@ -33,15 +33,16 @@
 }
 
 .workspace-sidebar {
+  --sidebar-inline-padding: .65rem;
   position: relative;
   z-index: 3;
   min-width: 0;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  padding: .85rem .65rem .65rem;
+  padding: .85rem var(--sidebar-inline-padding) .65rem;
   border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-muted) 74%, var(--surface-strong));
+  background: var(--sidebar-bg);
   overflow: hidden;
   transition:
     width 260ms cubic-bezier(.22, 1, .36, 1),
@@ -72,7 +73,7 @@
   aspect-ratio: 1;
   border-radius: .68rem;
   object-fit: cover;
-  box-shadow: 0 10px 28px -14px rgb(14 166 210 / 48%);
+  box-shadow: var(--shadow-brand);
 }
 
 .workspace-synvo-logo--large {
@@ -131,12 +132,12 @@
   border: 1px solid var(--border-strong);
   border-radius: .75rem;
   padding: 0 .72rem;
-  background: var(--surface-strong);
+  background: var(--surface);
   color: var(--ink);
-  font-size: .8rem;
+  font-size: .8125rem;
   font-weight: 680;
   white-space: nowrap;
-  box-shadow: 0 5px 18px -14px rgb(26 24 50 / 55%);
+  box-shadow: var(--shadow-new-task);
   transition:
     width 240ms cubic-bezier(.22, 1, .36, 1),
     min-height 240ms cubic-bezier(.22, 1, .36, 1),
@@ -146,20 +147,22 @@
 }
 
 .workspace-new-button:hover {
-  border-color: color-mix(in srgb, var(--violet) 35%, var(--border-strong));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
 }
 
 .workspace-composer:has(textarea:focus-visible) {
-  outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
 }
 
 .workspace-sidebar__scroll {
   min-height: 0;
   flex: 1;
+  /* Put the scroll track at the sidebar edge, outside the content spacing. */
+  margin-inline-end: calc(-1 * var(--sidebar-inline-padding));
+  padding-inline-end: var(--sidebar-inline-padding);
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .workspace-sidebar__section {
@@ -173,7 +176,7 @@
 .workspace-sidebar__section-title {
   margin: 0 .72rem .55rem;
   color: var(--ink-faint);
-  font-size: .63rem;
+  font-size: .6875rem;
   font-weight: 750;
   letter-spacing: .1em;
   text-transform: uppercase;
@@ -190,7 +193,7 @@
   padding: .42rem .7rem;
   background: transparent;
   color: var(--ink-soft);
-  font-size: .76rem;
+  font-size: .8125rem;
   text-align: left;
   white-space: nowrap;
   transition:
@@ -209,7 +212,7 @@
 
 .workspace-nav-item small {
   color: var(--ink-faint);
-  font-size: .57rem;
+  font-size: .625rem;
   font-weight: 650;
 }
 
@@ -247,14 +250,12 @@
 
 .codex-task-row:hover,
 .codex-task-row:focus-within {
-  background: color-mix(in srgb, var(--violet-soft) 34%, var(--surface-muted));
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface-muted));
 }
 
 .codex-task-row[data-active="true"] {
-  background: color-mix(in srgb, var(--violet-soft) 80%, var(--surface-muted));
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--violet) 30%, transparent),
-    0 5px 16px -14px color-mix(in srgb, var(--violet) 72%, transparent);
+  background: var(--surface-selected);
+  box-shadow: inset 0 0 0 1px var(--border-selected);
 }
 
 .codex-task-row__open {
@@ -276,7 +277,7 @@
 }
 
 .codex-task-row[data-active="true"] .codex-task-row__open > svg {
-  color: var(--violet);
+  color: var(--ink-soft);
 }
 
 .codex-task-row__pin {
@@ -285,7 +286,7 @@
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  color: var(--violet);
+  color: var(--accent);
 }
 
 .codex-task-row__pin svg {
@@ -334,8 +335,8 @@
 
 .codex-task-row__action:not(:disabled):hover,
 .codex-task-row__action:not(:disabled):focus-visible {
-  background: color-mix(in srgb, var(--violet-soft) 86%, var(--surface-strong));
-  color: var(--violet);
+  background: color-mix(in srgb, var(--accent-soft) 86%, var(--surface-strong));
+  color: var(--accent);
 }
 
 .codex-task-row__action--delete:not(:disabled):hover,
@@ -367,7 +368,7 @@
   width: 1.15rem;
   height: 1.15rem;
   flex: 0 0 auto;
-  color: var(--violet);
+  color: var(--accent);
 }
 
 .codex-task-rename label {
@@ -379,14 +380,12 @@
   width: 100%;
   min-width: 0;
   height: 1.8rem;
-  border: 1px solid color-mix(in srgb, var(--violet) 52%, var(--border-strong));
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, var(--border-strong));
   border-radius: .48rem;
   padding: 0 .48rem;
-  outline: 0;
   background: var(--surface-strong);
   color: var(--ink);
   font: inherit;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--violet) 14%, transparent);
 }
 
 .codex-task-delete-confirm {
@@ -455,10 +454,10 @@
 }
 
 .workspace-recent-item[data-active="true"] {
-  background: color-mix(in srgb, var(--violet-soft) 78%, var(--surface-muted));
+  background: color-mix(in srgb, var(--accent-soft) 78%, var(--surface-muted));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--violet) 28%, transparent),
-    0 5px 16px -14px color-mix(in srgb, var(--violet) 70%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 5px 16px -14px color-mix(in srgb, var(--accent) 70%, transparent);
   font-weight: 640;
 }
 
@@ -467,7 +466,7 @@
 }
 
 .workspace-recent-item[data-active="true"] .workspace-recent-item__open svg {
-  color: var(--violet);
+  color: var(--accent);
 }
 
 .workspace-recent-item[data-deleting="true"] {
@@ -535,7 +534,7 @@
 .workspace-sidebar__empty {
   margin: .6rem .72rem;
   color: var(--ink-faint);
-  font-size: .7rem;
+  font-size: .75rem;
 }
 
 .workspace-sidebar__footer {
@@ -643,10 +642,10 @@
 }
 
 .workspace-shell[data-sidebar-collapsed="true"] .workspace-recent-item[data-active="true"] {
-  background: var(--violet-soft);
+  background: var(--accent-soft);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--violet) 32%, transparent),
-    0 5px 16px -12px color-mix(in srgb, var(--violet) 68%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent),
+    0 5px 16px -12px color-mix(in srgb, var(--accent) 68%, transparent);
 }
 
 .workspace-shell[data-sidebar-collapsed="true"] .workspace-sidebar__collapse svg {
@@ -786,3 +785,7 @@
 .workspace-content[data-artifact-open="true"] {
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem);
 }
+
+.workspace-shell { height: var(--workspace-height, 100dvh); min-height: 0; position: relative; top: var(--workspace-offset, 0px); }
+.workspace-sidebar { min-height: 0; }
+.workspace-settings__section dl > div { flex-wrap: wrap; }

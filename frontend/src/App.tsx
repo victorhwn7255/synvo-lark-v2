@@ -1,3 +1,4 @@
+import synvoLogo from '../assets/logo.jpg'
 import { useCallback, useEffect, useState } from 'react'
 import { larkApi, type LarkApi, type LarkConnection } from './api/lark'
 import { codexApi, type CodexApi } from './api/codex'
@@ -120,7 +121,7 @@ function App({ api = larkApi, h5 = larkH5, workspaceAgentApi = codexApi }: AppPr
 function LoadingPage() {
   return (
     <main className="centered-state" role="status" aria-live="polite">
-      <div className="brand__mark brand__mark--large" aria-hidden="true"><span /><span /></div>
+      <img className="brand__mark brand__mark--large" src={synvoLogo} alt="Synvo AI Assistant" />
       <div className="loading-line"><span /></div>
       <h1>Preparing your Synvo workspace</h1>
       <p>Checking the secure Lark connection…</p>

@@ -17,7 +17,7 @@
   display: inline-flex;
   align-items: center;
   gap: .55rem;
-  color: var(--violet-strong);
+  color: var(--accent-strong);
   font-size: .75rem;
   font-weight: 750;
   letter-spacing: .12em;
@@ -95,7 +95,7 @@
 .connection-card::before {
   position: absolute;
   inset: 0;
-  border: 1px solid rgb(255 255 255 / 65%);
+  border: 1px solid var(--border);
   border-radius: inherit;
   content: "";
   pointer-events: none;
@@ -183,7 +183,7 @@
   border: 1px solid var(--border);
   border-radius: .9rem;
   background: var(--surface-muted);
-  color: var(--violet-strong);
+  color: var(--accent-strong);
 }
 
 .status-row__icon svg {
@@ -277,7 +277,7 @@
   place-items: center;
   border-radius: 999px;
   background: var(--negative);
-  color: white;
+  color: var(--page-bg);
   font-size: .7rem;
   font-weight: 800;
 }
@@ -320,13 +320,13 @@
 
 .button--primary {
   width: 100%;
-  background: linear-gradient(120deg, var(--violet-strong), var(--violet));
-  box-shadow: 0 14px 32px -16px rgb(91 63 240 / 90%);
-  color: white;
+  background: var(--primary);
+  box-shadow: var(--shadow-primary);
+  color: var(--on-primary);
 }
 
 .button--primary:not(:disabled):hover {
-  box-shadow: 0 18px 36px -16px rgb(91 63 240 / 100%);
+  box-shadow: var(--shadow-primary-hover);
 }
 
 .button--secondary,
@@ -401,7 +401,7 @@
   width: 45%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--violet), var(--cyan));
+  background: linear-gradient(90deg, var(--accent), var(--cyan));
   animation: loading-slide 1.25s ease-in-out infinite;
 }
 
@@ -510,43 +510,6 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f4f2fb;
-    background: #0e0e16;
-    --surface: rgb(25 24 37 / 80%);
-    --surface-strong: #211f2f;
-    --surface-muted: #252334;
-    --ink: #f5f3fb;
-    --ink-soft: #b4b0c3;
-    --ink-faint: #8d899f;
-    --border: rgb(239 235 255 / 10%);
-    --border-strong: rgb(239 235 255 / 17%);
-    --violet: #9b89ff;
-    --violet-strong: #ad9fff;
-    --violet-soft: #30294f;
-    --positive: #56d2a5;
-    --positive-soft: #19372e;
-    --warning: #f1bd5d;
-    --warning-soft: #3c3020;
-    --negative: #ff8296;
-    --negative-soft: #40252d;
-    --focus: #ad9fff;
-    color-scheme: dark;
-  }
-
-  body {
-    background:
-      radial-gradient(circle at 18% -10%, rgb(114 87 255 / 19%), transparent 34rem),
-      radial-gradient(circle at 100% 90%, rgb(26 200 212 / 11%), transparent 34rem),
-      #0e0e16;
-  }
-
-  .connection-card::before {
-    border-color: rgb(255 255 255 / 4%);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -561,4 +524,3 @@
     transition-duration: .01ms !important;
   }
 }
-

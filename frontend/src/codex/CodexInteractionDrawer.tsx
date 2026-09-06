@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useModalFocus } from '../workspace/useModalFocus'
 import type {
   CodexInteraction,
   CodexInteractionDecision,
@@ -19,9 +20,10 @@ export function CodexInteractionDrawer({
     formValues: Record<string, string>,
   ) => Promise<void>
 }) {
-  const [formValues, setFormValues] = useState<Record<string, string>>({})
-  const firstButtonRef = useRef<HTMLButtonElement>(null)
+  const [formState, setFormState] = useState(() => ({ interactionId: interaction.interactionId, values: initialFormValues(interaction) }))
+  const formValues = formState.interactionId === interaction.interactionId ? formState.values : initialFormValues(interaction)
   const drawerRef = useRef<HTMLElement>(null)
+  useModalFocus(drawerRef, true)
   const [expired, setExpired] = useState(() => isExpired(interaction.expiresAt))
   const detail = interaction.detail
   const fields = detail?.fields ?? []
@@ -29,23 +31,7 @@ export function CodexInteractionDrawer({
     interaction.kind === 'MCP_ELICITATION' || interaction.kind === 'MCP_TOOL_APPROVAL'
   ) && fields.length > 0
 
-  useEffect(() => {
-    setFormValues(Object.fromEntries(
-      fields.filter((field) => field.type === 'BOOLEAN').map((field) => [field.name, 'false']),
-    ))
-  }, [interaction.interactionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null
-    const target = firstButtonRef.current
-    if (target && !target.disabled) target.focus()
-    else drawerRef.current?.focus()
-    return () => {
-      if (previousFocus?.isConnected) previousFocus.focus()
-    }
-  }, [interaction.interactionId])
 
   useEffect(() => {
     const expiresAt = Date.parse(interaction.expiresAt)
@@ -63,29 +49,6 @@ export function CodexInteractionDrawer({
     return () => window.clearTimeout(timeout)
   }, [interaction.expiresAt])
 
-  const containFocus = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Tab') return
-    const drawer = drawerRef.current
-    if (!drawer) return
-    const focusable = Array.from(drawer.querySelectorAll<HTMLElement>(
-      'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)',
-    ))
-    if (focusable.length === 0) {
-      event.preventDefault()
-      drawer.focus()
-      return
-    }
-    const first = focusable[0]
-    const last = focusable.at(-1)
-    if (event.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
-      event.preventDefault()
-      last?.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
-
   return (
     <div className="codex-interaction-backdrop">
       <section
@@ -97,7 +60,6 @@ export function CodexInteractionDrawer({
         aria-labelledby="codex-interaction-title"
         aria-describedby="codex-interaction-reason"
         tabIndex={-1}
-        onKeyDown={containFocus}
       >
         <header>
           <p>Action required</p>
@@ -156,9 +118,9 @@ export function CodexInteractionDrawer({
                 field={field}
                 value={formValues[field.name] ?? ''}
                 disabled={submitting}
-                onChange={(value) => setFormValues((current) => ({
-                  ...current,
-                  [field.name]: value,
+                onChange={(value) => setFormState((current) => ({
+                  interactionId: interaction.interactionId,
+                  values: { ...(current.interactionId === interaction.interactionId ? current.values : initialFormValues(interaction)), [field.name]: value },
                 }))}
               />
             ))}
@@ -170,7 +132,7 @@ export function CodexInteractionDrawer({
           {interaction.availableDecisions.map((decision, index) => (
             <button
               key={decision}
-              ref={index === 0 ? firstButtonRef : undefined}
+              data-modal-initial={index === 0 ? true : undefined}
               type="button"
               data-decision={decision.toLowerCase()}
               disabled={submitting || expired || (
@@ -179,7 +141,7 @@ export function CodexInteractionDrawer({
               onClick={() => void onDecide(
                 decision,
                 needsInput && isApproval(decision) ? formValues : {},
-              )}
+              ).catch(() => {})}
             >
               {decisionLabel(decision)}
             </button>
@@ -287,4 +249,8 @@ function formatTime(timestamp: string) {
   return Number.isNaN(date.getTime()) ? 'Soon' : new Intl.DateTimeFormat('en-SG', {
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Singapore',
   }).format(date)
+}
+
+function initialFormValues(interaction: CodexInteraction): Record<string, string> {
+  return Object.fromEntries((interaction.detail?.fields ?? []).filter((field) => field.type === 'BOOLEAN').map((field) => [field.name, 'false']))
 }

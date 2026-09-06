@@ -5,6 +5,27 @@ import { AssistantMarkdown } from './AssistantMarkdown'
 describe('AssistantMarkdown', () => {
   afterEach(cleanup)
 
+  it('renders semantic table headers and aligned cells without treating rows as an inventory', () => {
+    render(<AssistantMarkdown>{'| Metric | Change |\n| :--- | ---: |\n| Revenue | **12%** |'}</AssistantMarkdown>)
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Metric' })).toHaveAttribute('scope', 'col')
+    expect(screen.getByRole('cell', { name: '12%' })).toHaveStyle({ textAlign: 'right' })
+    expect(screen.getByRole('region', { name: 'Table — scroll horizontally if needed' })).toHaveAttribute('tabindex', '0')
+    expect(screen.queryByRole('list', { name: 'Result entries' })).not.toBeInTheDocument()
+  })
+
+  it('preserves escaped pipes, code, and safe references inside streamed tables', () => {
+    const { rerender, container } = render(<AssistantMarkdown>{'| Name | Value |\n| --- |'}</AssistantMarkdown>)
+    expect(container).toHaveTextContent('Name')
+    rerender(<AssistantMarkdown>{'| Name | Value |\n| --- | --- |\n| A\\|B | `x` |\n| [Report](./reports/sales.csv) | [Unsafe](javascript:alert(1)) |\n| <img src=x onerror=alert(1)> | ![tracker](https://example.com/x.png) |'}</AssistantMarkdown>)
+    expect(screen.getByRole('cell', { name: 'A|B' })).toBeInTheDocument()
+    expect(container.querySelector('code')).toHaveTextContent('x')
+    expect(screen.getByText('reports/sales.csv')).toHaveClass('assistant-workspace-reference')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('[onerror]')).toBeNull()
+  })
+
   it('renders assistant structure without displaying raw Markdown syntax', () => {
     render(
       <AssistantMarkdown>{`Natural language provides:
