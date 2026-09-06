@@ -18,6 +18,7 @@ import synvo.workspaceagent.WorkspaceConversationAgent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -63,9 +64,11 @@ class LarkChannelLifecycleTests {
 				mock(ConversationRunCoordinator.class), mock(ConversationQueries.class),
 				mock(WorkspaceConversationAgent.class));
 
-		new LarkChannelLifecycle(client, handler, status).connect();
+		LarkChannelLifecycle lifecycle = new LarkChannelLifecycle(client, handler, status);
+		lifecycle.connect();
 
 		assertEquals(LarkConnectionState.FAILED, status.snapshot().state());
+		lifecycle.disconnect();
 	}
 
 	@Test
@@ -132,6 +135,41 @@ class LarkChannelLifecycleTests {
 
 		assertEquals(1, client.restartCount);
 		assertEquals(LarkConnectionState.FAILED, status.snapshot().state());
+
+		lifecycle.disconnect();
+	}
+
+	@Test
+	void keepsRetryingWithBoundedBackoffAfterAReplacementFailure() {
+		FakeChannelClient client = new FakeChannelClient();
+		client.restartResult = CompletableFuture.failedFuture(new IllegalStateException("offline"));
+		LarkConnectionStatus status = new LarkConnectionStatus(properties());
+		ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+		when(scheduler.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+				.thenAnswer(ignored -> mock(ScheduledFuture.class));
+		LarkChannelLifecycle lifecycle = new LarkChannelLifecycle(
+				client,
+				handler(client),
+				status,
+				scheduler,
+				Duration.ofSeconds(30),
+				Duration.ofSeconds(5),
+				Duration.ofMinutes(1));
+
+		lifecycle.connect();
+		client.signal(Signal.RECONNECTING);
+		lifecycle.recoverIfStalled();
+
+		assertEquals(1, client.restartCount);
+		assertEquals(LarkConnectionState.FAILED, status.snapshot().state());
+		verify(scheduler).schedule(any(Runnable.class), eq(5_000L), eq(TimeUnit.MILLISECONDS));
+
+		client.restartResult = CompletableFuture.completedFuture(
+				new LarkChannelClient.BotProfile("ou-recovered", "Synvo"));
+		lifecycle.recoverIfStalled();
+
+		assertEquals(2, client.restartCount);
+		assertEquals(LarkConnectionState.CONNECTED, status.snapshot().state());
 
 		lifecycle.disconnect();
 	}

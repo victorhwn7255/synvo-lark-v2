@@ -154,12 +154,17 @@ class RuntimeFactory:
         )
         installed_version = self.installed_version()
         self.verify_sandbox()
-        client = AppServerClient(
-            command=self.app_server_command(policy),
-            environment={"CODEX_HOME": str(self.settings.codex_home)},
-        )
+
+        def create_client() -> AppServerClient:
+            return AppServerClient(
+                command=self.app_server_command(policy),
+                environment={"CODEX_HOME": str(self.settings.codex_home)},
+            )
+
+        client = create_client()
         return CodexEngine(
             client=client,
+            client_factory=create_client,
             installed_version=installed_version,
             capability_policy=policy,
             allowed_mcp_servers=set(self.settings.allowed_mcp_servers),

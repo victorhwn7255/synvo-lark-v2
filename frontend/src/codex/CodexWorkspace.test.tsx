@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   CodexApi,
@@ -15,6 +15,8 @@ import type {
   ConversationStreamEvent,
 } from '../api/conversations'
 import { Workspace } from '../workspace/Workspace'
+import { startAppearance } from '../appearance'
+import { useCodexWorkspace } from './useCodexWorkspace'
 
 describe('CodexWorkspace', () => {
   afterEach(() => {
@@ -23,53 +25,449 @@ describe('CodexWorkspace', () => {
     vi.restoreAllMocks()
   })
 
-  it('creates a configured task before enabling free-form conversation options', async () => {
-    const codex = codexFlow({ tasks: [] })
+  it.each(['APPROVE_ONCE', 'DECLINE', 'CANCEL'] as const)('stores only a confirmed, minimal %s receipt', async (decision) => {
+    const codex = codexFlow()
+    vi.mocked(codex.api.decideInteraction).mockResolvedValue({ ...pendingInteraction(), status: 'DECIDED', decision })
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1', 'interaction-1') })
+    await act(async () => { await result.current.decideInteraction(decision, { sample: 'never retain form content' }) })
+    expect(result.current.decisionReceipts).toEqual([{ taskId: 'task-1', operationId: 'operation-1', interactionId: 'interaction-1', decision }])
+    expect(result.current.interaction).toBeNull()
+    expect(result.current.decisionAnnouncement).toBe(decision === 'APPROVE_ONCE' ? 'Approved once' : decision === 'DECLINE' ? 'Declined' : 'Cancellation requested')
+    await act(async () => { await result.current.deleteTaskById('task-1') })
+    expect(result.current.decisionReceipts).toEqual([])
+  })
+
+  it('bounds each task receipt history, deduplicates identities, and clears it on unmount', async () => {
+    const codex = codexFlow()
+    const { result, unmount } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    for (let index = 0; index < 22; index += 1) {
+      const interaction = { ...pendingInteraction(), interactionId: `decision-${index}` }
+      vi.mocked(codex.api.interaction).mockResolvedValue(interaction)
+      vi.mocked(codex.api.decideInteraction).mockResolvedValue({ ...interaction, status: 'DECIDED', decision: 'APPROVE_ONCE' })
+      await act(async () => { await result.current.openTask('task-1', interaction.interactionId) })
+      await act(async () => { await result.current.decideInteraction('APPROVE_ONCE', {}) })
+    }
+    expect(result.current.decisionReceipts).toHaveLength(20)
+    expect(result.current.decisionReceipts[0].interactionId).toBe('decision-2')
+    await act(async () => { await result.current.openTask('task-1', 'decision-21') })
+    await act(async () => { await result.current.decideInteraction('APPROVE_ONCE', {}) })
+    expect(result.current.decisionReceipts).toHaveLength(20)
+    unmount()
+    const fresh = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    expect(fresh.result.current.decisionReceipts).toEqual([])
+  })
+
+  it('rechecks decision ownership after CSRF acquisition before sending', async () => {
+    const codex = codexFlow()
+    const csrf = deferred<string>()
+    vi.mocked(codex.api.csrfToken).mockImplementation(() => csrf.promise)
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1', 'interaction-1') })
+    let pending!: Promise<void>
+    act(() => { pending = result.current.decideInteraction('APPROVE_ONCE', {}).catch(() => {}) })
+    act(() => result.current.clearSelection())
+    await act(async () => { csrf.resolve('csrf-token'); await pending })
+    expect(codex.api.decideInteraction).not.toHaveBeenCalled()
+    expect(result.current.decisionReceipts).toEqual([])
+    expect(result.current.error).toBeNull()
+  })
+
+  it.each(['rejected', 'pending', 'expired', 'unknown-status', 'wrong-owner', 'missing-decision'] as const)('keeps recovery without a receipt for a %s decision response', async (failure) => {
+    const codex = codexFlow()
+    const response = { ...pendingInteraction(), status: 'DECIDED', decision: 'APPROVE_ONCE' as const }
+    if (failure === 'rejected') vi.mocked(codex.api.decideInteraction).mockRejectedValue(new Error('Sample request failed'))
+    else vi.mocked(codex.api.decideInteraction).mockResolvedValue({ ...response,
+      ...(failure === 'pending' ? { status: 'PENDING' } : {}),
+      ...(failure === 'expired' ? { status: 'EXPIRED' } : {}),
+      ...(failure === 'unknown-status' ? { status: 'RESOLVED' } : {}),
+      ...(failure === 'wrong-owner' ? { taskId: 'another-task' } : {}),
+      ...(failure === 'missing-decision' ? { decision: null } : {}),
+    })
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1', 'interaction-1') })
+    await act(async () => { await result.current.decideInteraction('APPROVE_ONCE', {}).catch(() => {}) })
+    expect(result.current.interaction?.interactionId).toBe('interaction-1')
+    expect(result.current.decisionReceipts).toEqual([])
+    expect(result.current.error).toBeTruthy()
+  })
+
+  it.each(['selection', 'replacement', 'replaced-error'] as const)('does not dismiss or announce over a %s during a delayed decision', async (race) => {
+    const pending = deferred<CodexInteraction>()
+    const codex = codexFlow()
+    vi.mocked(codex.api.decideInteraction).mockImplementation(() => pending.promise)
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1', 'interaction-1') })
+    let submitted!: Promise<void>
+    act(() => { submitted = result.current.decideInteraction('APPROVE_ONCE', {}).catch(() => {}) })
+    await waitFor(() => expect(codex.api.decideInteraction).toHaveBeenCalledOnce())
+    await act(async () => { await result.current.decideInteraction('APPROVE_ONCE', {}).catch(() => {}) })
+    expect(codex.api.decideInteraction).toHaveBeenCalledOnce()
+    if (race === 'selection') act(() => result.current.clearSelection())
+    else {
+      vi.mocked(codex.api.interaction).mockResolvedValue({ ...pendingInteraction(), interactionId: 'interaction-2' })
+      await act(async () => { await result.current.openTask('task-1', 'interaction-2') })
+    }
+    await act(async () => {
+      if (race === 'replaced-error') pending.reject(new Error('Old request failed'))
+      else pending.resolve({ ...pendingInteraction(), status: 'DECIDED', decision: 'DECLINE' })
+      await submitted
+    })
+    expect(result.current.interaction?.interactionId ?? null).toBe(race === 'selection' ? null : 'interaction-2')
+    expect(result.current.decisionAnnouncement).toBe('')
+    expect(result.current.error).toBeNull()
+    expect(result.current.decisionReceipts).toHaveLength(race === 'replaced-error' ? 0 : 1)
+    if (race !== 'replaced-error') expect(result.current.decisionReceipts[0].decision).toBe('DECLINE')
+  })
+
+  it('opens the current pending interaction when a reload link names an already decided interaction', async () => {
+    const current = { ...pendingInteraction(), interactionId: 'next-decision' }
+    const codex = codexFlow({ detail: detail({ pendingInteractions: [current] }), interaction: current })
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1', 'old-decision') })
+    expect(codex.api.interaction).toHaveBeenCalledExactlyOnceWith('next-decision', undefined)
+    expect(result.current.interaction?.interactionId).toBe('next-decision')
+    expect(new URLSearchParams(location.search).get('codexInteraction')).toBe('next-decision')
+  })
+
+  it('preserves a pending decision when task metadata omits it and rechecks its authoritative record', async () => {
+    const codex = codexFlow()
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1', 'interaction-1') })
+    await act(async () => { await result.current.synchronizeSelectedTask() })
+    expect(result.current.interaction?.interactionId).toBe('interaction-1')
+    expect(result.current.decisionReceipts).toEqual([])
+    vi.mocked(codex.api.interaction).mockResolvedValue({ ...pendingInteraction(), status: 'DECIDED', decision: 'DECLINE' })
+    await act(async () => { await result.current.synchronizeSelectedTask() })
+    expect(result.current.interaction).toBeNull()
+    expect(result.current.decisionReceipts).toEqual([])
+  })
+
+  it('uses authoritative terminal metadata rather than a projected running timestamp', async () => {
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1') })
+    act(() => codex.emit({ kind: 'activity', sequence: 1, type: 'TURN_COMPLETED', terminalStatus: 'COMPLETED', label: 'Completed', text: null, truncated: false }))
+    await act(async () => { await result.current.synchronizeSelectedTask() })
+    expect(result.current.taskDetail?.latestOperation?.status).toBe('COMPLETED')
+    expect(result.current.terminalTiming).toBeNull()
+    vi.mocked(codex.api.task).mockResolvedValue(detail({ latestOperation: { ...operation, status: 'COMPLETED', updatedAt: '2026-09-05T12:00:10Z' } }))
+    await act(async () => { await result.current.synchronizeSelectedTask() })
+    expect(result.current.terminalTiming).toEqual({ operationId: 'operation-1', updatedAt: '2026-09-05T12:00:10Z' })
+  })
+
+  it('steers from the composer without opening details and retains terminal drafts', async () => {
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
     const conversation = conversationFlow()
     renderWorkspace(codex.api, conversation.api)
-
-    expect(await screen.findByRole('heading', { name: 'Create a New Task' })).toBeInTheDocument()
-    const taskSetup = screen.getByRole('region', { name: 'Create a New Task' })
-    expect(within(taskSetup).getByRole('img', { name: 'Synvo with Codex' })).toBeInTheDocument()
-    expect(within(taskSetup).queryByText('Codex in Lark')).not.toBeInTheDocument()
-    expect(within(taskSetup).getByText('Select a folder directory and access mode for this task.')).toBeInTheDocument()
-    const workspaceSelect = screen.getByRole('combobox', { name: 'Workspace' })
-    expect(workspaceSelect).toHaveClass('codex-task-setup__select')
-    expect(workspaceSelect.closest('.codex-task-setup__select-wrap')?.querySelector('svg')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Synvo Workspaces/Finance/' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Synvo Workspaces/Products/' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Synvo Workspaces/Sales/' })).toBeInTheDocument()
-    await waitFor(() => expect(workspaceSelect).toHaveValue('products'))
-    expect(screen.getByText('gpt-5.6-sol · App Server 0.148.0')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('radio', { name: /Full Edit/ }))
-    fireEvent.change(screen.getByRole('textbox', { name: /Task title/ }), {
-      target: { value: 'Fix the pilot build' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
-
-    await waitFor(() => expect(codex.api.createTask).toHaveBeenCalledWith({
-      workspaceId: 'products',
-      mode: 'WORKSPACE_WRITE',
-      title: 'Fix the pilot build',
-    }, 'csrf-token'))
-    expect(await screen.findByRole('textbox', { name: 'Message Synvo' })).toBeEnabled()
-
-    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning' }), { target: { value: 'high' } })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Skill' }), { target: { value: 'test-skill' } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Message Synvo' }), {
-      target: { value: 'Run the focused frontend tests' },
-    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    const composer = await screen.findByRole('textbox', { name: 'Message Synvo' })
+    expect(screen.queryByRole('complementary', { name: 'Codex task details' })).not.toBeInTheDocument()
+    fireEvent.change(composer, { target: { value: 'Include the regional breakdown' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update instructions' }))
+    await waitFor(() => expect(codex.api.steer).toHaveBeenCalledWith('operation-1', 'Include the regional breakdown', 'csrf-token'))
+    await waitFor(() => expect(composer).toHaveValue(''))
+    fireEvent.change(composer, { target: { value: 'Retain this unsent update' } })
+    act(() => codex.emit({ kind: 'activity', sequence: 8, type: 'TURN_COMPLETED', label: 'Completed', text: null, truncated: false, terminalStatus: 'COMPLETED' }))
+    expect(await screen.findByRole('button', { name: 'Use as new message' })).toBeInTheDocument()
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(conversation.api.submit).not.toHaveBeenCalled()
+    expect(composer).toHaveValue('Retain this unsent update')
+    fireEvent.click(screen.getByRole('button', { name: 'Use as new message' }))
+    expect(composer).toHaveValue('Retain this unsent update')
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledOnce())
+  })
 
-    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: 'conversation-1',
-        content: 'Run the focused frontend tests',
-        reasoningEffort: 'high',
-        skillName: 'test-skill',
-      }),
-      'csrf-token',
-    ))
+  it.each(['terminal', 'selection', 'roundtrip', 'decision'] as const)('rejects steering when %s changes during CSRF acquisition', async (race) => {
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+    const csrf = deferred<string>()
+    vi.mocked(codex.api.csrfToken).mockImplementation(() => csrf.promise)
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1') })
+    let steering!: Promise<unknown>
+    act(() => { steering = result.current.steer('Keep the original source', 'operation-1').catch((error: Error) => error.message) })
+    if (race === 'terminal') act(() => codex.emit({ kind: 'activity', sequence: 9, type: 'TURN_COMPLETED', label: 'Completed', text: null, truncated: false, terminalStatus: 'COMPLETED' }))
+    if (race === 'selection') act(() => result.current.clearSelection())
+    if (race === 'roundtrip') { act(() => result.current.clearSelection()); await act(async () => { await result.current.openTask('task-1') }) }
+    if (race === 'decision') act(() => codex.emit({ kind: 'interaction_required', interactionId: 'interaction-1', taskId: 'task-1', operationId: 'operation-1', interactionKind: 'FILE_CHANGE_APPROVAL', category: 'file change', reason: 'Review the bounded change', permissionScope: 'once', expiresAt: '2099-01-01T00:00:00Z' }))
+    await act(async () => csrf.resolve('csrf-token'))
+    expect(await steering).toMatch(/no longer available/)
+    expect(codex.api.steer).not.toHaveBeenCalled()
+  })
+
+  it('keeps an in-flight steering acknowledgement attached to its terminal operation and prevents duplicate clicks', async () => {
+    const pending = deferred<void>()
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+    vi.mocked(codex.api.steer).mockImplementation(() => pending.promise)
+    renderWorkspace(codex.api, conversationFlow().api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Message Synvo' }), { target: { value: 'Include sales by region' } })
+    const send = screen.getByRole('button', { name: 'Update instructions' })
+    fireEvent.click(send)
+    fireEvent.click(send)
+    await waitFor(() => expect(codex.api.steer).toHaveBeenCalledOnce())
+    act(() => codex.emit({ kind: 'activity', sequence: 9, type: 'TURN_COMPLETED', label: 'Completed', text: null, truncated: false, terminalStatus: 'COMPLETED' }))
+    await act(async () => pending.resolve())
+    fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    const instruction = screen.getAllByText('Include sales by region')[0]
+    expect(instruction.closest('li')).toHaveAttribute('data-status', 'completed')
+  })
+
+  it('shows unavailable account metadata honestly in Settings', async () => {
+    const codex = codexFlow()
+    const status = await codex.api.status()
+    vi.mocked(codex.api.status).mockResolvedValue({ ...status, account: null })
+    renderWorkspace(codex.api, conversationFlow().api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    expect(await screen.findByText('Usage information unavailable')).toBeInTheDocument()
+    expect(screen.getByText('H5 connection')).toBeInTheDocument()
+    expect(screen.queryByText('Knowledge Sources')).not.toBeInTheDocument()
+    expect(screen.queryByText('0%')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Quotation/ })).toBeDisabled()
+  })
+
+  it('starts once, uses read-only by default, and sends only after the created conversation loads', async () => {
+    const creation = deferred<CodexTask>()
+    const codex = codexFlow({ tasks: [] })
+    vi.mocked(codex.api.createTask).mockImplementation(() => creation.promise)
+    const conversation = conversationFlow()
+    const loaded = deferred<Awaited<ReturnType<ConversationApi['get']>>>()
+    const empty = await conversation.api.get('conversation-1')
+    vi.mocked(conversation.api.get).mockImplementation(() => loaded.promise)
+    renderWorkspace(codex.api, conversation.api)
+    expect(await screen.findByRole('heading', { name: 'What would you like to work on?' })).toBeInTheDocument()
+    expect(screen.getByText('GPT-5.6 Sol')).toBeInTheDocument()
+    expect(screen.getByText('High effort')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /Task title/ }).compareDocumentPosition(
+      screen.getByRole('textbox', { name: 'Your request' }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const start = screen.getByRole('button', { name: 'Start task' })
+    expect(start).toBeDisabled()
+    expect(screen.getByRole('radio', { name: /Read Only/ })).toBeChecked()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your request' }), { target: { value: 'Summarize the monthly sales report' } })
+    fireEvent.click(start)
+    fireEvent.click(start)
+    await waitFor(() => expect(codex.api.createTask).toHaveBeenCalledExactlyOnceWith({ workspaceId: 'products', mode: 'READ_ONLY' }, 'csrf-token'))
+    expect(conversation.api.submit).not.toHaveBeenCalled()
+    await act(async () => creation.resolve(pilotTask()))
+    expect(conversation.api.submit).not.toHaveBeenCalled()
+    await act(async () => loaded.resolve(empty))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conversation-1', content: 'Summarize the monthly sales report', reasoningEffort: 'high' }), 'csrf-token'))
+    expect(conversation.api.submit).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the configured workspace, optional title, and edit policy in the start request', async () => {
+    const codex = codexFlow({ tasks: [] })
+    renderWorkspace(codex.api, conversationFlow().api)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Your request' }), { target: { value: 'Prepare a sales report' } })
+    fireEvent.click(screen.getByRole('radio', { name: /Edit workspace files/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: /Task title/ }), { target: { value: 'Monthly report' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    await waitFor(() => expect(codex.api.createTask).toHaveBeenCalledWith({ workspaceId: 'products', mode: 'WORKSPACE_WRITE', title: 'Monthly report' }, 'csrf-token'))
+  })
+
+  it('isolates effort overrides by task and sends the selected effort on a follow-up', async () => {
+    const second = { ...pilotTask(), taskId: 'task-2', conversationId: 'conversation-2', title: 'Second task' }
+    const codex = codexFlow({ tasks: [pilotTask(), second] })
+    vi.mocked(codex.api.task).mockImplementation(async (id) => detail({ task: id === second.taskId ? second : pilotTask() }))
+    const conversation = conversationFlow()
+    const empty = await conversation.api.get('conversation-1')
+    vi.mocked(conversation.api.get).mockImplementation(async (conversationId) => ({ ...empty, conversationId }))
+    renderWorkspace(codex.api, conversation.api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Reasoning' })).toBeEnabled())
+    expect(screen.getByRole('combobox', { name: 'Reasoning' })).toHaveValue('high')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning' }), { target: { value: 'medium' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Second task' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Second task' })).toBeInTheDocument())
+    expect(screen.getByRole('combobox', { name: 'Reasoning' })).toHaveValue('high')
+    fireEvent.click(screen.getByRole('button', { name: 'Pilot task' }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message Synvo' })).toBeEnabled())
+    expect(screen.getByRole('combobox', { name: 'Reasoning' })).toHaveValue('medium')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Synvo' }), { target: { value: 'Summarize the report.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: 'medium' }), 'csrf-token'))
+  })
+
+  it('starts a new task with High even after another task selected Medium', async () => {
+    const codex = codexFlow()
+    const conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Reasoning' })).toBeEnabled())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning' }), { target: { value: 'medium' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New Codex task' }))
+    const request = await screen.findByRole('textbox', { name: 'Your request' })
+    expect(screen.getByText('High effort')).toBeInTheDocument()
+    fireEvent.change(request, { target: { value: 'Prepare a new report.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: 'high' }), 'csrf-token'))
+    expect(screen.getByRole('combobox', { name: 'Reasoning' })).toHaveValue('high')
+  })
+
+  it('shows and sends the supported fallback when High is unavailable', async () => {
+    const codex = codexFlow({ tasks: [] })
+    const status = await codex.api.status()
+    vi.mocked(codex.api.status).mockResolvedValue({ ...status, reasoningEfforts: ['low'] })
+    const conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+    const request = await screen.findByRole('textbox', { name: 'Your request' })
+    expect(screen.getByText('Low effort')).toBeInTheDocument()
+    expect(screen.getByText('High effort unavailable; using Low.')).toBeInTheDocument()
+    fireEvent.change(request, { target: { value: 'Summarize the report.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: 'low' }), 'csrf-token'))
+  })
+
+  it.each(['model', 'effort'])('does not claim a default or create when %s metadata is missing', async (missing) => {
+    const codex = codexFlow({ tasks: [] })
+    const status = await codex.api.status()
+    vi.mocked(codex.api.status).mockResolvedValue({ ...status, ...(missing === 'model' ? { model: null } : { reasoningEfforts: [] }) })
+    renderWorkspace(codex.api, conversationFlow().api)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Your request' }), { target: { value: 'Summarize the report.' } })
+    expect(screen.getByText(missing === 'model' ? 'Model unavailable' : 'Effort unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled()
+    expect(codex.api.createTask).not.toHaveBeenCalled()
+  })
+
+  it('recovers a confirmed task whose detail failed to load without repeating creation', async () => {
+    const codex = codexFlow({ tasks: [] })
+    vi.mocked(codex.api.task).mockRejectedValueOnce(new Error('Task detail temporarily unavailable'))
+    const conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Your request' }), { target: { value: 'Summarize sales' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    expect(await screen.findByText('Your task was created. Load it to send your retained request.')).toBeInTheDocument()
+    expect(conversation.api.submit).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading task' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledOnce())
+    expect(codex.api.createTask).toHaveBeenCalledOnce()
+  })
+
+  it('opens phone navigation and task details as dismissible focus-restoring sheets', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: /max-width/.test(query), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    try {
+      const codex = codexFlow()
+      window.history.replaceState(null, '', '/?codexTask=task-1')
+      renderWorkspace(codex.api, conversationFlow().api)
+      const menu = await screen.findByRole('button', { name: 'Open navigation' })
+      menu.focus()
+      fireEvent.click(menu)
+      expect(screen.getByRole('dialog', { name: 'Synvo AI Assistant task navigation' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveFocus()
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      expect(menu).toHaveFocus()
+      const details = await screen.findByRole('button', { name: 'Task details' })
+      details.focus()
+      fireEvent.click(details)
+      expect(screen.getByRole('dialog', { name: 'Codex task details' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Close task details' })).toHaveFocus()
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      expect(details).toHaveFocus()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('retains an unconfirmed creation draft and refreshes tasks without creating again', async () => {
+    const codex = codexFlow({ tasks: [] })
+    vi.mocked(codex.api.createTask).mockRejectedValue(new Error('Connection interrupted'))
+    const conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+    const request = await screen.findByRole('textbox', { name: 'Your request' })
+    fireEvent.change(request, { target: { value: 'Analyze the monthly report' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    expect(await screen.findByText(/Could not confirm task creation/)).toBeInTheDocument()
+    expect(request).toHaveValue('Analyze the monthly report')
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled()
+    expect(codex.api.tasks).toHaveBeenCalledTimes(2)
+    expect(codex.api.createTask).toHaveBeenCalledOnce()
+    expect(conversation.api.submit).not.toHaveBeenCalled()
+  })
+
+  it('retries a failed first message in the created task without repeating creation', async () => {
+    const codex = codexFlow({ tasks: [] })
+    const conversation = conversationFlow()
+    vi.mocked(conversation.api.submit).mockRejectedValueOnce(new Error('Please retry this request'))
+    renderWorkspace(codex.api, conversation.api)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Your request' }), { target: { value: 'Summarize sales' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledTimes(2))
+    expect(codex.api.createTask).toHaveBeenCalledOnce()
+    expect(vi.mocked(conversation.api.submit).mock.calls[1][0]).toMatchObject({ conversationId: 'conversation-1', content: 'Summarize sales' })
+  })
+
+  it('keeps successful runtime and workspace data when the initial task list fails', async () => {
+    const codex = codexFlow({ tasks: [] })
+    vi.mocked(codex.api.tasks)
+      .mockRejectedValueOnce(new Error('The task list is temporarily unavailable.'))
+      .mockResolvedValue([])
+
+    renderWorkspace(codex.api, conversationFlow().api)
+
+    expect(await screen.findByText('Codex is ready')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Synvo Workspaces/Finance/' })).toBeInTheDocument()
+    expect(screen.queryByText('Checking Codex…')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('polls a recovering runtime until it becomes ready without reloading H5', async () => {
+    let runRecoveryPoll: (() => void) | null = null
+    vi.spyOn(window, 'setInterval').mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 3_000 && typeof handler === 'function') {
+        runRecoveryPoll = () => { handler() }
+      }
+      return 1
+    }) as typeof window.setInterval)
+    const codex = codexFlow({ tasks: [] })
+    const ready = await codex.api.status()
+    vi.mocked(codex.api.status)
+      .mockResolvedValueOnce({ ...ready, state: 'RECOVERING' })
+      .mockResolvedValueOnce(ready)
+
+    renderWorkspace(codex.api, conversationFlow().api)
+
+    expect(await screen.findByText('Codex is reconnecting automatically…')).toBeInTheDocument()
+    expect(runRecoveryPoll).not.toBeNull()
+    await act(async () => runRecoveryPoll?.())
+    expect(await screen.findByText('Codex is ready')).toBeInTheDocument()
+  })
+
+  it('replaces a failed initial status request with an unavailable state and self-recovers', async () => {
+    let runRecoveryPoll: (() => void) | null = null
+    vi.spyOn(window, 'setInterval').mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 3_000 && typeof handler === 'function') {
+        runRecoveryPoll = () => { handler() }
+      }
+      return 1
+    }) as typeof window.setInterval)
+    const codex = codexFlow({ tasks: [] })
+    const ready = await codex.api.status()
+    vi.mocked(codex.api.status)
+      .mockRejectedValueOnce(new Error('Codex status is temporarily unavailable.'))
+      .mockResolvedValueOnce(ready)
+
+    renderWorkspace(codex.api, conversationFlow().api)
+
+    expect(await screen.findByText('Codex is temporarily unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('Checking Codex…')).not.toBeInTheDocument()
+    await act(async () => runRecoveryPoll?.())
+    expect(await screen.findByText('Codex is ready')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('renders ordered activity and resolves a mandatory detail-rich H5 interaction', async () => {
@@ -82,6 +480,8 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
 
     const technicalActivity = screen.getByText('Technical activity').closest('summary')
     expect(technicalActivity).not.toBeNull()
@@ -135,7 +535,7 @@ describe('CodexWorkspace', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Review file change' })
     expect(dialog).toHaveTextContent('Synvo pilot')
     expect(dialog).toHaveTextContent('src/codex/CodexWorkspace.test.tsx')
-    expect(screen.getByRole('button', { name: 'Approve once' })).toHaveFocus()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve once' })).toHaveFocus())
     fireEvent.click(screen.getByRole('button', { name: 'Approve once' }))
 
     await waitFor(() => expect(codex.api.decideInteraction).toHaveBeenCalledWith(
@@ -192,8 +592,9 @@ describe('CodexWorkspace', () => {
       terminalStatus: null,
     }))
 
+    act(() => conversation.emit({ sequence: 1, type: 'thinking', delta: null, message: null, presentation: null, action: null }))
     const timeline = within(assistant).getByRole('region', { name: 'Agent activity' })
-    expect(within(timeline).getByText('Codex is working')).toBeInTheDocument()
+    expect(within(timeline).getByText('Analyzing your request…', { selector: 'strong' })).toBeInTheDocument()
     expect(within(timeline).getByText('Inspect the configured workspace first.')).toBeInTheDocument()
     expect(within(assistant).queryByLabelText('Preparing a response…')).not.toBeInTheDocument()
   })
@@ -242,7 +643,8 @@ describe('CodexWorkspace', () => {
       .getByRole('region', { name: 'Agent activity' })
     expect(await within(timeline).findByText('Task started')).toBeInTheDocument()
     expect(within(timeline).getByText('Checking the Finance sources and validation criteria.')).toBeInTheDocument()
-    expect(within(timeline).getByText(/Safe technical details/)).toHaveTextContent('2 normalized events summarized.')
+    expect(within(timeline).getByText('2 milestones')).toBeInTheDocument()
+    expect(within(timeline).queryByText(/normalized events/)).not.toBeInTheDocument()
   })
 
   it('supports task management, goals, review, steering, and stop through owning APIs', async () => {
@@ -254,6 +656,8 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
 
     expect(screen.getByRole('button', { name: 'Close task details' })).toHaveClass('codex-task-panel__close')
     const taskPanel = screen.getByRole('complementary', { name: 'Codex task details' })
@@ -308,11 +712,14 @@ describe('CodexWorkspace', () => {
     expect(await screen.findByText('Objective saved. The goal status did not change.')).toBeInTheDocument()
     expect(screen.getByText('Saving the objective does not start work or modify files.')).toBeInTheDocument()
 
+    vi.mocked(codex.api.review).mockResolvedValue({ ...activeOperation('REVIEW'), operationId: 'review-1' })
     fireEvent.click(screen.getByRole('button', { name: 'Start review' }))
     await waitFor(() => expect(codex.api.review).toHaveBeenCalledWith(
       'task-1', 'UNCOMMITTED_CHANGES', null, 'csrf-token',
     ))
 
+    act(() => codex.emit({ kind: 'activity', sequence: 5, type: 'TURN_COMPLETED', label: 'Review completed', text: null, truncated: false, terminalStatus: 'COMPLETED' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument())
     currentDetail = detail({ activeOperation: activeOperation(), latestOperation: activeOperation() })
     vi.mocked(codex.api.task).mockResolvedValue(currentDetail)
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Synvo' }), {
@@ -320,15 +727,15 @@ describe('CodexWorkspace', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledOnce())
-    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Steer active work' })).toBeInTheDocument())
-    fireEvent.change(screen.getByRole('textbox', { name: 'Steer active work' }), {
+    await screen.findByRole('button', { name: 'Update instructions' })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Synvo' }), {
       target: { value: 'Run typecheck before finishing' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update instructions' }))
     await waitFor(() => expect(codex.api.steer).toHaveBeenCalledWith(
       'operation-1', 'Run typecheck before finishing', 'csrf-token',
     ))
-    fireEvent.click(screen.getByRole('button', { name: 'Stop current work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(conversation.api.stop).toHaveBeenCalledWith('run-1', 'csrf-token'))
     expect(codex.api.stopOperation).not.toHaveBeenCalled()
   })
@@ -344,18 +751,20 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
 
     const taskPanel = within(screen.getByRole('complementary', { name: 'Codex task details' }))
     expect(taskPanel.getByRole('heading', { name: 'Current activity' })).toBeInTheDocument()
     expect(taskPanel.getByText('Codex is working')).toBeInTheDocument()
-    expect(taskPanel.getByText('You can send an update below or stop the current work.')).toBeInTheDocument()
+    expect(taskPanel.getByText('Update instructions or stop from the conversation composer.')).toBeInTheDocument()
     expect(screen.queryByText('turn · running')).not.toBeInTheDocument()
     expect(taskPanel.getByText('Instructions sent during this task')).toBeInTheDocument()
     expect(taskPanel.getByText('No steering instructions have been sent in this H5 session.')).toBeInTheDocument()
 
-    const steeringInput = screen.getByRole('textbox', { name: 'Steer active work' })
+    const steeringInput = screen.getByRole('textbox', { name: 'Message Synvo' })
     fireEvent.change(steeringInput, { target: { value: 'Add the requested owners section' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update instructions' }))
 
     expect(await screen.findByRole('button', { name: 'Sending…' })).toBeDisabled()
     expect(screen.getByText('Sending your update…')).toBeInTheDocument()
@@ -363,7 +772,7 @@ describe('CodexWorkspace', () => {
 
     steering.resolve()
     expect(await screen.findByText('Steering sent')).toBeInTheDocument()
-    expect(screen.getByText('Codex accepted your update and will apply it to the current task.')).toBeInTheDocument()
+    expect(screen.getByText('Codex accepted your update. Delivery does not mean the work is complete.')).toBeInTheDocument()
     const steeringMilestone = (await screen.findByText('Instructions updated')).closest('li')
     expect(steeringMilestone).toHaveAttribute('data-status', 'steering')
     expect(screen.getByText('Your steering update was delivered to Codex.')).toBeInTheDocument()
@@ -379,10 +788,9 @@ describe('CodexWorkspace', () => {
 
     vi.mocked(codex.api.steer).mockRejectedValueOnce(new Error('Operation finished'))
     fireEvent.change(steeringInput, { target: { value: 'Keep this instruction available' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update instructions' }))
 
-    const steeringFailure = await within(screen.getByRole('complementary', { name: 'Codex task details' }))
-      .findByText('Steering wasn’t sent')
+    const steeringFailure = await screen.findByText('Steering wasn’t sent')
     expect(steeringFailure.closest('[role="alert"]')).toBeInTheDocument()
     expect(screen.getByText('Your instruction is still in the box. Review the error above and try again.')).toBeInTheDocument()
     expect(steeringInput).toHaveValue('Keep this instruction available')
@@ -401,10 +809,12 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Steer active work' }), {
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Synvo' }), {
       target: { value: 'Add a concise risk summary' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send steering' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update instructions' }))
 
     const taskPanel = within(screen.getByRole('complementary', { name: 'Codex task details' }))
     const historySection = taskPanel.getByRole('heading', { name: 'Instructions sent during this task' }).closest('section')!
@@ -429,6 +839,14 @@ describe('CodexWorkspace', () => {
     expect(within(operationStatus).getByText('Task completed')).toBeInTheDocument()
     expect(within(operationStatus).getByText('Codex finished the latest work in this task.')).toBeInTheDocument()
     expect(within(operationStatus).queryByText('Codex is working')).not.toBeInTheDocument()
+    expect(screen.getByText('Steering sent')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Synvo' }), {
+      target: { value: 'Now summarize the next reporting period' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(conversation.api.submit).toHaveBeenCalledOnce())
+    expect(screen.queryByText('Steering sent')).not.toBeInTheDocument()
+    expect(delivered.closest('li')).toHaveAttribute('data-status', 'completed')
   })
 
   it('explains a saved goal, its tracked progress, and unsaved changes', async () => {
@@ -445,6 +863,8 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
 
     const heading = screen.getByRole('heading', { name: 'Task goal' })
     const goalSection = heading.closest('section')
@@ -495,6 +915,8 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
     const goalView = within(screen.getByRole('heading', { name: 'Task goal' }).closest('section')!)
 
     fireEvent.change(goalView.getByRole('textbox', { name: 'Objective and completion criteria' }), {
@@ -552,6 +974,8 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
 
     const goalView = within(screen.getByRole('heading', { name: 'Task goal' }).closest('section')!)
     expect(goalView.getByText('Needs attention')).toBeInTheDocument()
@@ -585,6 +1009,8 @@ describe('CodexWorkspace', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
     await screen.findByRole('textbox', { name: 'Message Synvo' })
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
     const goalView = within(screen.getByRole('heading', { name: 'Task goal' }).closest('section')!)
 
     fireEvent.click(goalView.getByRole('button', { name: 'Pause goal' }))
@@ -722,7 +1148,9 @@ describe('CodexWorkspace', () => {
 
     expect(await screen.findByRole('dialog', { name: 'Review file change' })).toBeInTheDocument()
     expect(codex.api.interaction).toHaveBeenCalledWith('interaction-1', undefined)
-    expect(screen.getByText('Waiting for your approval in H5…')).toBeInTheDocument()
+    expect(screen.getByText('A decision is required.')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message Synvo' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel task' })).toBeEnabled()
     act(() => resolveInventory?.())
   })
 
@@ -747,8 +1175,155 @@ describe('CodexWorkspace', () => {
     }))
     expect(await screen.findByText('reconnected result')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(conversation.api.stop).toHaveBeenCalledWith('run-1', 'csrf-token'))
+  })
+
+  it('preserves an active stream, unsent steering, focus and decision ownership across appearance changes', async () => {
+    let light = false
+    const listeners = new Set<() => void>()
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      get matches() { return query.includes('prefers-color-scheme') && (query.includes(': light') ? light : !light) },
+      addEventListener: (_: string, callback: () => void) => listeners.add(callback),
+      removeEventListener: (_: string, callback: () => void) => listeners.delete(callback),
+    }))
+    const dispose = startAppearance()
+    try {
+      const operation = activeOperation()
+      const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+      const conversation = conversationFlow({ activeRun: true, partialContent: 'The total is ' })
+      renderWorkspace(codex.api, conversation.api)
+      fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+      await waitFor(() => expect(conversation.api.subscribe).toHaveBeenCalledOnce())
+      const draft = screen.getByRole('textbox', { name: 'Message Synvo' }) as HTMLTextAreaElement
+      fireEvent.change(draft, { target: { value: 'Keep this unsent update' } })
+      draft.focus()
+      draft.setSelectionRange(5, 9)
+      const switchAppearance = () => act(() => {
+        light = !light
+        listeners.forEach(callback => callback())
+      })
+      switchAppearance()
+      expect(document.documentElement.dataset.appearance).toBe('light')
+      expect(screen.getByRole('textbox', { name: 'Message Synvo' })).toBe(draft)
+      expect(draft).toHaveValue('Keep this unsent update')
+      expect(document.activeElement).toBe(draft)
+      expect([draft.selectionStart, draft.selectionEnd]).toEqual([5, 9])
+      expect(conversation.api.subscribe).toHaveBeenCalledOnce()
+      expect(codex.close).not.toHaveBeenCalled()
+      act(() => {
+        conversation.emit({ sequence: 4, type: 'content_delta', message: null, delta: 'The total is ', presentation: null, action: null })
+        conversation.emit({ sequence: 5, type: 'content_delta', message: null, delta: '42.', presentation: null, action: null })
+      })
+      expect(await screen.findByText('The total is 42.')).toBeInTheDocument()
+      act(() => conversation.emit({ sequence: 6, type: 'action_required', message: 'Review this decision.', delta: null, presentation: null,
+        action: { taskId: 'task-1', interactionId: 'interaction-1', category: 'file change', workspaceName: 'Synvo pilot', reason: 'Review a bounded change.', permissionScope: 'once' },
+      }))
+      const dialog = await screen.findByRole('dialog', { name: 'Review file change' })
+      const pending = deferred<CodexInteraction>()
+      vi.mocked(codex.api.decideInteraction).mockReturnValueOnce(pending.promise)
+      switchAppearance()
+      expect(screen.getByRole('dialog', { name: 'Review file change' })).toBe(dialog)
+      fireEvent.click(screen.getByRole('button', { name: 'Approve once' }))
+      await waitFor(() => expect(codex.api.decideInteraction).toHaveBeenCalledOnce())
+      switchAppearance()
+      expect(screen.getByRole('dialog', { name: 'Review file change' })).toBe(dialog)
+      expect(codex.api.decideInteraction).toHaveBeenCalledOnce()
+      expect(conversation.api.subscribe).toHaveBeenCalledOnce()
+      expect(conversation.api.submit).not.toHaveBeenCalled()
+      expect(codex.api.steer).not.toHaveBeenCalled()
+      await act(async () => pending.resolve({ ...pendingInteraction(), status: 'DECIDED', decision: 'APPROVE_ONCE' }))
+      expect(await screen.findByText('Approved once', { selector: '.codex-decision-receipt' })).toBeInTheDocument()
+      expect(draft).toHaveValue('Keep this unsent update')
+    } finally {
+      dispose()
+      document.documentElement.removeAttribute('data-appearance')
+      document.documentElement.removeAttribute('style')
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('replays an active answer without duplicating its saved partial content', async () => {
+    const operation = activeOperation()
+    const codex = codexFlow({ detail: detail({ activeOperation: operation, latestOperation: operation }) })
+    const conversation = conversationFlow({ activeRun: true, partialContent: 'The total is ' })
+    renderWorkspace(codex.api, conversation.api)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pilot task' }))
+    await waitFor(() => expect(conversation.api.subscribe).toHaveBeenCalled())
+    act(() => {
+      conversation.emit({ sequence: 4, type: 'content_delta', message: null, delta: 'The total is ', presentation: null, action: null })
+      conversation.emit({ sequence: 5, type: 'content_delta', message: null, delta: '42.', presentation: null, action: null })
+      conversation.emit({ sequence: 6, type: 'completed', message: 'Response complete.', delta: null, presentation: null, action: null })
+    })
+
+    expect(await screen.findByText('The total is 42.')).toBeInTheDocument()
+    expect(screen.queryByText('The total is The total is 42.')).not.toBeInTheDocument()
+  })
+
+  it('ignores failure from a task that is no longer selected', async () => {
+    const previous = deferred<CodexTaskDetail>()
+    const current = detail({ task: { ...pilotTask(), taskId: 'task-2', title: 'Current task' } })
+    const codex = codexFlow()
+    vi.mocked(codex.api.task).mockImplementation((id) => id === 'task-1' ? previous.promise : Promise.resolve(current))
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    let pending!: ReturnType<typeof result.current.openTask>
+    act(() => { pending = result.current.openTask('task-1') })
+    await act(async () => { await result.current.openTask('task-2') })
+    await act(async () => {
+      previous.reject(new Error('Previous task is unavailable'))
+      await pending
+    })
+
+    expect(result.current.taskDetail).toEqual(current)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('discards a delayed approval after changing the selected task', async () => {
+    const approval = deferred<CodexInteraction>()
+    const previous = detail({ activeOperation: activeOperation(), pendingInteractions: [pendingInteraction()] })
+    const current = detail({ task: { ...pilotTask(), taskId: 'task-2' } })
+    const codex = codexFlow()
+    vi.mocked(codex.api.task).mockImplementation((id) => Promise.resolve(id === 'task-1' ? previous : current))
+    vi.mocked(codex.api.interaction).mockReturnValue(approval.promise)
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    let pending!: ReturnType<typeof result.current.openTask>
+    act(() => { pending = result.current.openTask('task-1') })
+    await waitFor(() => expect(codex.api.interaction).toHaveBeenCalled())
+    await act(async () => { await result.current.openTask('task-2') })
+    await act(async () => {
+      approval.resolve(pendingInteraction())
+      await pending
+    })
+
+    expect(result.current.taskDetail).toEqual(current)
+    expect(result.current.interaction).toBeNull()
+  })
+
+  it('ignores a queued event from the previous task without closing the current stream', async () => {
+    const previous = detail({ latestOperation: { ...activeOperation(), status: 'COMPLETED' } })
+    const current = detail({
+      task: { ...pilotTask(), taskId: 'task-2' },
+      activeOperation: { ...activeOperation(), taskId: 'task-2', operationId: 'operation-2' },
+    })
+    const codex = codexFlow()
+    const currentClose = vi.fn()
+    vi.mocked(codex.api.task).mockImplementation((id) => Promise.resolve(id === 'task-1' ? previous : current))
+    vi.mocked(codex.api.subscribe).mockImplementation((id) => ({ close: id === 'operation-2' ? currentClose : vi.fn() }))
+    const { result } = renderHook(() => useCodexWorkspace({ api: codex.api }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { await result.current.openTask('task-1') })
+    const oldReceive = vi.mocked(codex.api.subscribe).mock.calls[0][1]
+    await act(async () => { await result.current.openTask('task-2') })
+    act(() => oldReceive({
+      kind: 'activity', sequence: 10, type: 'TURN_COMPLETED', label: 'Previous work completed',
+      text: null, truncated: false, terminalStatus: 'COMPLETED',
+    }))
+
+    expect(result.current.activity).toEqual([])
+    expect(currentClose).not.toHaveBeenCalled()
   })
 
   it('closes a completed task activity stream instead of reconnecting it', async () => {
@@ -765,7 +1340,9 @@ describe('CodexWorkspace', () => {
     await waitFor(() => expect(codex.api.subscribe).toHaveBeenCalledOnce())
     expect(await screen.findByRole('dialog', { name: 'Review file change' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Task details' }))
-    expect(screen.getByRole('button', { name: 'Stop current work' })).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Edit goal').closest('summary')!)
+    fireEvent.click(screen.getByText('Task actions', { selector: 'summary' }))
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
 
     act(() => codex.emit({
       kind: 'activity',
@@ -781,7 +1358,7 @@ describe('CodexWorkspace', () => {
     expect(screen.queryByText('Reconnecting to Codex activity…')).not.toBeInTheDocument()
     await waitFor(() => expect(codex.api.task).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(codex.api.subscribe).toHaveBeenCalledTimes(2))
-    expect(screen.queryByRole('button', { name: 'Stop current work' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'Review file change' })).not.toBeInTheDocument()
     const taskPanel = within(screen.getByRole('complementary', { name: 'Codex task details' }))
     const currentActivity = taskPanel.getByRole('heading', { name: 'Current activity' }).closest('section')!
@@ -866,7 +1443,7 @@ function codexFlow(overrides: {
     stopOperation: vi.fn().mockResolvedValue({ stopped: true }),
     steer: vi.fn().mockResolvedValue(undefined),
     interaction: vi.fn().mockResolvedValue(interaction),
-    decideInteraction: vi.fn().mockResolvedValue({ ...interaction, status: 'RESOLVED', decision: 'APPROVE_ONCE' }),
+    decideInteraction: vi.fn().mockResolvedValue({ ...interaction, status: 'DECIDED', decision: 'APPROVE_ONCE' }),
     inventory: vi.fn().mockResolvedValue({
       skills: [{ name: 'test-skill', description: 'Runs the configured focused test workflow.' }],
       mcpServers: [{ name: 'fixture', authenticationStatus: 'ready', tools: ['read_fixture'] }],
@@ -884,7 +1461,7 @@ function codexFlow(overrides: {
   return { api, emit: (event: CodexOperationEvent) => receive?.(event), close }
 }
 
-function conversationFlow(options: { activeRun?: boolean } = {}) {
+function conversationFlow(options: { activeRun?: boolean; partialContent?: string } = {}) {
   let receive: ((event: ConversationStreamEvent) => void) | null = null
   const run: ConversationRun = {
     requestId: 'request-1',
@@ -905,8 +1482,8 @@ function conversationFlow(options: { activeRun?: boolean } = {}) {
       turns: options.activeRun ? [{
         turnId: 'assistant-1',
         role: 'ASSISTANT',
-        content: '',
-        status: 'PENDING',
+        content: options.partialContent ?? '',
+        status: options.partialContent ? 'STREAMING' : 'PENDING',
         createdAt: '2026-08-21T12:00:00Z',
         updatedAt: '2026-08-21T12:00:00Z',
       }] : [],

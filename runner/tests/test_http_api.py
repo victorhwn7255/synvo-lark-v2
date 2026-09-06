@@ -36,6 +36,7 @@ class FakeEngine:
     def __init__(self) -> None:
         self.operation_value = FakeOperation()
         self.ready_value = True
+        self.health_value = "ready"
         self.created = []
         self.decisions = []
         self.stopped = []
@@ -43,6 +44,9 @@ class FakeEngine:
 
     def ready(self):
         return self.ready_value
+
+    def health(self):
+        return self.health_value if self.ready_value else "unavailable"
 
     def capabilities(self):
         return {"model": "gpt-5.6-sol", "reasoningEfforts": ["low"]}
@@ -167,6 +171,11 @@ class RunnerHttpApiTest(unittest.TestCase):
         self.engine.ready_value = False
         unavailable = self.request("GET", "/health")[2]
         self.assertEqual("unavailable", unavailable["state"])
+
+        self.engine.ready_value = True
+        for state in ("recovering", "protocolIncompatible"):
+            self.engine.health_value = state
+            self.assertEqual(state, self.request("GET", "/health")[2]["state"])
 
     def test_create_turn_events_and_interaction_decision(self) -> None:
         status, _headers, task = self.request(

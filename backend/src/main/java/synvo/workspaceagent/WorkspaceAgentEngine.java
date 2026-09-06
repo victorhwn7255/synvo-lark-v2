@@ -69,8 +69,10 @@ public interface WorkspaceAgentEngine {
 
 	enum EngineStatus {
 		READY,
+		RECOVERING,
 		DISABLED,
 		AUTHENTICATION_REQUIRED,
+		PROTOCOL_INCOMPATIBLE,
 		UNAVAILABLE
 	}
 

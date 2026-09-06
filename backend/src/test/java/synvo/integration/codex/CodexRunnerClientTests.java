@@ -39,6 +39,7 @@ class CodexRunnerClientTests {
 	private final List<ReceivedRequest> requests = new ArrayList<>();
 	private HttpServer server;
 	private CodexRunnerClient client;
+	private String healthState = "ready";
 
 	@BeforeEach
 	void startServer() throws IOException {
@@ -68,6 +69,16 @@ class CodexRunnerClientTests {
 		assertEquals(List.of("low", "high"), capabilities.reasoningEfforts());
 		assertEquals("chatgpt", account.authentication());
 		assertEquals("pro", account.plan());
+	}
+
+	@Test
+	void mapsBoundedRunnerRecoveryStatesWithoutLeakingProviderDetail() {
+		healthState = "recovering";
+		assertEquals(WorkspaceAgentEngine.EngineStatus.RECOVERING, client.status());
+		healthState = "protocolIncompatible";
+		assertEquals(WorkspaceAgentEngine.EngineStatus.PROTOCOL_INCOMPATIBLE, client.status());
+		healthState = "private-provider-state";
+		assertEquals(WorkspaceAgentEngine.EngineStatus.UNAVAILABLE, client.status());
 	}
 
 	@Test
@@ -180,7 +191,7 @@ class CodexRunnerClientTests {
 		int status = 200;
 		Object body;
 		if (path.equals("/health")) {
-			body = Map.of("state", "ready");
+			body = Map.of("state", healthState);
 		}
 		else if (path.equals("/v1/capabilities")) {
 			body = Map.of(

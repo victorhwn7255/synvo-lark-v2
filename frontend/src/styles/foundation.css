@@ -1,75 +1,179 @@
-
 @theme {
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --color-synvo-violet: #7257ff;
-  --color-synvo-cyan: #1ac8d4;
+  --font-sans: "Avenir Next", Avenir, "Segoe UI", Arial, sans-serif;
+  --color-synvo-accent: #69afff;
+  --color-synvo-cyan: #03adf0;
   --radius-synvo-card: 1.75rem;
-  --shadow-synvo-card: 0 30px 80px -38px rgb(35 30 80 / 38%);
+  --shadow-synvo-card: 0 30px 80px -38px rgb(0 0 0 / 38%);
   --animate-synvo-pulse: synvo-pulse 2.4s ease-in-out infinite;
 }
 
 :root {
+  --color-synvo-accent: var(--accent);
+  --color-synvo-cyan: var(--cyan);
+  --font-sans: "Avenir Next", Avenir, "Segoe UI", Arial, sans-serif;
+  --page-bg: #171819;
+  --sidebar-bg: #171819;
+  --surface-strong: #1c1d1f;
+  --surface-panel: #202123;
+  --surface: #232426;
+  --surface-muted: #2b2c2f;
+  --surface-selected: #292a2d;
+  --accent-soft: #292a2e;
+  --ink: #ededf0;
+  --ink-soft: #b5b5bd;
+  --ink-faint: #a1a1aa;
+  --border: #343539;
+  --border-strong: #48494f;
+  --border-control: var(--ink-faint);
+  --border-selected: #35363a;
+  --border-selected-control: #607c9b;
+  --accent: #69afff;
+  --accent-strong: #8cc6ff;
+  --primary: #1672db;
+  --on-primary: #ffffff;
+  --cyan: #03adf0;
+  --positive: #6bd69b;
+  --positive-soft: #22372b;
+  --warning: #f0be72;
+  --warning-soft: #3a3021;
+  --negative: #ff96a3;
+  --negative-soft: #3d262c;
+  --destructive: #ad3048;
+  --on-destructive: #ffffff;
+  --focus: #69afff;
+  --scrollbar-size: .1875rem;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgb(161 161 170 / 38%);
+  --scrollbar-thumb-hover: rgb(161 161 170 / 58%);
+  --backdrop: rgb(0 0 0 / 58%);
+  --shadow-composer: 0 18px 46px -32px rgb(0 0 0 / 48%);
+  --shadow-activity: 0 18px 42px -34px rgb(0 0 0 / 55%);
+  --shadow-new-task: 0 5px 18px -14px rgb(0 0 0 / 55%);
+  --shadow-selected-filter: 0 5px 14px -12px rgb(0 0 0 / 60%);
+  --shadow-brand: 0 10px 28px -14px rgb(0 0 0 / 48%);
+  --shadow-setup-brand: 0 14px 32px -20px rgb(0 0 0 / 65%);
+  --shadow-selected-control: inset 0 0 0 1px rgb(105 175 255 / 12%);
+  --shadow-panel: -24px 0 60px -38px rgb(0 0 0 / 70%);
+  --shadow-drawer: -24px 0 70px -34px rgb(0 0 0 / 80%);
+  --shadow-dialog: 0 24px 70px -28px rgb(0 0 0 / 78%);
+  --shadow-navigation: 18px 0 48px -36px rgb(0 0 0 / 85%);
+  --shadow-primary: 0 14px 32px -16px rgb(0 0 0 / 55%);
+  --shadow-primary-hover: 0 18px 36px -16px rgb(0 0 0 / 60%);
   font-family: var(--font-sans);
-  color: #161627;
-  background: #f7f7fb;
+  color: var(--ink);
+  background: var(--page-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --surface: rgb(255 255 255 / 78%);
+  color-scheme: dark;
+}
+
+:root[data-appearance="light"] {
+  --page-bg: #f8f9fb;
+  --sidebar-bg: #f8f9fb;
   --surface-strong: #ffffff;
-  --surface-muted: #f1f1f7;
-  --ink: #171625;
-  --ink-soft: #666477;
-  --ink-faint: #8d8a9c;
-  --border: rgb(54 48 83 / 11%);
-  --border-strong: rgb(54 48 83 / 18%);
-  --violet: #7257ff;
-  --violet-strong: #5b3ff0;
-  --violet-soft: #eeeaff;
-  --cyan: #1ac8d4;
-  --positive: #14976b;
-  --positive-soft: #e5f8f0;
-  --warning: #bb7910;
-  --warning-soft: #fff4d9;
-  --negative: #cb455d;
-  --negative-soft: #ffebef;
-  --focus: #5b3ff0;
-  --scrollbar-track: color-mix(in srgb, var(--surface-muted) 82%, transparent);
-  --scrollbar-thumb: color-mix(in srgb, var(--violet) 58%, var(--border-strong));
-  --scrollbar-thumb-hover: color-mix(in srgb, var(--violet) 78%, var(--cyan));
+  --surface-panel: #f7f8fa;
+  --surface: #ffffff;
+  --surface-muted: #f0f1f3;
+  --surface-selected: #e8ebef;
+  --accent-soft: #edf0f4;
+  --ink: #202124;
+  --ink-soft: #4b5563;
+  --ink-faint: #596273;
+  --border: #e0e3e8;
+  --border-strong: #c5cad3;
+  --border-control: #7b8493;
+  --border-selected: #d6dbe3;
+  --border-selected-control: #58779a;
+  --accent: #145fb8;
+  --accent-strong: #0d47a1;
+  --primary: #1672db;
+  --on-primary: #ffffff;
+  --cyan: #03adf0;
+  --positive: #167342;
+  --positive-soft: #eaf6ee;
+  --warning: #885500;
+  --warning-soft: #fff4df;
+  --negative: #b42336;
+  --negative-soft: #fff0f1;
+  --destructive: #ad3048;
+  --on-destructive: #ffffff;
+  --focus: #1672db;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgb(89 98 115 / 38%);
+  --scrollbar-thumb-hover: rgb(89 98 115 / 58%);
+  --backdrop: rgb(23 32 43 / 24%);
+  --shadow-composer: 0 18px 46px -32px rgb(0 0 0 / 16%);
+  --shadow-activity: 0 18px 42px -34px rgb(0 0 0 / 16%);
+  --shadow-new-task: 0 5px 18px -14px rgb(0 0 0 / 16%);
+  --shadow-selected-filter: 0 5px 14px -12px rgb(0 0 0 / 18%);
+  --shadow-brand: 0 10px 28px -14px rgb(0 0 0 / 16%);
+  --shadow-setup-brand: 0 14px 32px -20px rgb(0 0 0 / 20%);
+  --shadow-selected-control: inset 0 0 0 1px rgb(20 95 184 / 10%);
+  --shadow-panel: -24px 0 60px -38px rgb(0 0 0 / 22%);
+  --shadow-drawer: -24px 0 70px -34px rgb(0 0 0 / 26%);
+  --shadow-dialog: 0 24px 70px -28px rgb(0 0 0 / 24%);
+  --shadow-navigation: 18px 0 48px -36px rgb(0 0 0 / 26%);
+  --shadow-primary: 0 14px 32px -16px rgb(0 0 0 / 18%);
+  --shadow-primary-hover: 0 18px 36px -16px rgb(0 0 0 / 22%);
+  --shadow-synvo-card: 0 30px 80px -38px rgb(0 0 0 / 16%);
   color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
-}
-
-.workspace-themed-scrollbar {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar {
-  width: .62rem;
-  height: .62rem;
+.workspace-themed-scrollbar {
+  scrollbar-gutter: stable;
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar-track {
+/* Non-auto standard properties override custom WebKit width and thumb styles. */
+@supports selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
   border-radius: 999px;
   background: var(--scrollbar-track);
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
+*::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: var(--scrollbar-thumb);
-  background-clip: padding-box;
 }
 
-.workspace-themed-scrollbar::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
-  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) and (forced-colors: none) {
+  .workspace-sidebar:not(:hover):not(:has(:focus-visible)) .workspace-sidebar__scroll {
+    --scrollbar-thumb: transparent;
+    --scrollbar-thumb-hover: transparent;
+  }
+}
+
+@media (forced-colors: active) {
+  * { scrollbar-color: auto; scrollbar-width: auto; }
+  *::-webkit-scrollbar { width: auto; height: auto; }
+  *::-webkit-scrollbar-thumb { background: CanvasText; }
+  *::-webkit-scrollbar-thumb:hover { background: Highlight; }
+  *::-webkit-scrollbar-track { background: Canvas; }
 }
 
 html {
@@ -82,21 +186,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100svh;
-  background:
-    radial-gradient(circle at 18% -10%, rgb(114 87 255 / 11%), transparent 33rem),
-    radial-gradient(circle at 100% 90%, rgb(26 200 212 / 10%), transparent 34rem),
-    #f7f7fb;
+  background: var(--page-bg);
 }
 
 button,
 a {
   font: inherit;
-}
-
-button:focus-visible,
-a:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
-  outline-offset: 4px;
 }
 
 .app-shell {
@@ -121,13 +216,13 @@ a:focus-visible {
 .ambient--one {
   top: -19rem;
   right: 12%;
-  background: radial-gradient(circle, rgb(114 87 255 / 23%), transparent 68%);
+  background: transparent;
 }
 
 .ambient--two {
   bottom: -22rem;
   left: -6rem;
-  background: radial-gradient(circle, rgb(26 200 212 / 17%), transparent 67%);
+  background: transparent;
 }
 
 .site-header {
@@ -174,15 +269,15 @@ a:focus-visible {
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: .8rem;
-  background: linear-gradient(145deg, #876fff 0%, #6447ef 52%, #27c8d6 145%);
-  box-shadow: 0 10px 28px -12px rgb(91 63 240 / 75%);
+  background: var(--surface);
+  box-shadow: var(--shadow-brand);
 }
 
 .brand__mark span {
   position: absolute;
   width: 1.28rem;
   height: .48rem;
-  border: 2px solid rgb(255 255 255 / 92%);
+  border: 2px solid var(--ink);
   border-radius: 999px;
   transform: rotate(-38deg);
 }
@@ -195,4 +290,35 @@ a:focus-visible {
 .brand__mark span:last-child {
   right: .28rem;
   bottom: .66rem;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--ink-faint);
+  opacity: 1;
+}
+
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+/* Cover the existing 1px control border with one continuous focus edge. */
+:where(button, input:not([type="checkbox"], [type="radio"]), select, textarea):focus-visible {
+  outline-offset: -1px;
+}
+/* Separate the blue focus edge from a filled Light-mode action. */
+:root[data-appearance="light"] :where(
+  .button--primary,
+  .workspace-danger-button,
+  .workspace-dialog__actions button:last-child,
+  .codex-task-setup form > button,
+  .codex-goal__save,
+  .codex-interaction-actions button[data-decision^="approve"],
+  .codex-interaction-actions button[data-decision="cancel"],
+  .workspace-composer__footer button:not(.workspace-composer__stop)
+):focus-visible {
+  outline-offset: 3px;
+}
+@media (forced-colors: active) {
+  :root, :root[data-appearance] { --focus: Highlight; }
+  :where(button, input, textarea, select, [aria-current="page"], [aria-pressed="true"]) { border: 1px solid ButtonText; }
 }

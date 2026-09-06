@@ -7,6 +7,18 @@ import { CodexSidebar } from './CodexSidebar'
 describe('CodexSidebar', () => {
   afterEach(cleanup)
 
+  it('places the first workflow above Tasks without a task search control', () => {
+    renderSidebar()
+
+    const workflows = screen.getByRole('navigation', { name: 'Workflows' })
+    const tasks = screen.getByRole('navigation', { name: 'Tasks' })
+    expect(workflows.compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Quotation — coming soon' })).toBeDisabled()
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(workflows).toHaveClass('codex-workflow-navigation')
+    expect(tasks).toHaveClass('codex-task-navigation')
+  })
+
   it('highlights the selected active task and exposes rename and archive actions', async () => {
     const onRenameTask = vi.fn().mockResolvedValue(undefined)
     const onArchiveTask = vi.fn().mockResolvedValue(undefined)
@@ -69,7 +81,6 @@ function renderSidebar(overrides: Partial<Parameters<typeof CodexSidebar>[0]> = 
     tasks: [task('task-1', 'Selected task')],
     selectedTaskId: null,
     archived: false,
-    search: '',
     busy: false,
     assistantReady: true,
     assistantAvailability: 'Codex is ready.',
@@ -81,7 +92,6 @@ function renderSidebar(overrides: Partial<Parameters<typeof CodexSidebar>[0]> = 
     onArchiveTask: vi.fn().mockResolvedValue(undefined),
     onDeleteTask: vi.fn().mockResolvedValue(undefined),
     onArchivedChange: vi.fn(),
-    onSearchChange: vi.fn(),
     onOpenSettings: vi.fn(),
     ...overrides,
   }

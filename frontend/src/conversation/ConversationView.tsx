@@ -12,8 +12,8 @@ import {
   SynvoLogo,
 } from '../workspace/visuals'
 
-const COMPOSER_MIN_HEIGHT_PX = 44
-const COMPOSER_MAX_HEIGHT_PX = 200
+const COMPOSER_MIN_HEIGHT_PX = 32
+const COMPOSER_MAX_HEIGHT_PX = 120
 const CONVERSATION_BOTTOM_THRESHOLD_PX = 96
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore'
 
@@ -31,8 +31,10 @@ export function ConversationView({
   onBranch,
   composerControls,
   activityPresentation,
+  responseStreaming,
   composerDisabled = false,
   composerPlaceholder,
+  composerAction,
 }: {
   turns: ConversationTurn[]
   userAvatarUrl: string | null
@@ -47,8 +49,16 @@ export function ConversationView({
   onBranch?: () => void
   composerControls?: ReactNode
   activityPresentation?: ReactNode
+  responseStreaming?: boolean
   composerDisabled?: boolean
   composerPlaceholder?: string
+  composerAction?: {
+    label: string
+    hint: string
+    busy?: boolean
+    stop?: { label: string; disabled: boolean }
+    feedback?: ReactNode
+  }
 }) {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const streamViewportRef = useRef<HTMLDivElement>(null)
@@ -80,14 +90,15 @@ export function ConversationView({
     return () => window.removeEventListener('resize', resize)
   }, [])
 
+  const inputDisabled = composerDisabled || Boolean(composerAction?.busy) || (!composerAction && activeRun !== null)
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    onSubmit(composerValue)
+    if (!inputDisabled && composerValue.trim()) onSubmit(composerValue)
   }
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
-      onSubmit(composerValue)
+      if (!inputDisabled && composerValue.trim()) onSubmit(composerValue)
     }
   }
   const updateScrollPreference = () => {
@@ -102,7 +113,6 @@ export function ConversationView({
       <div
         ref={streamViewportRef}
         className="workspace-conversation__stream workspace-themed-scrollbar"
-        aria-live="polite"
         onScroll={updateScrollPreference}
       >
         {loading && <div className="workspace-history-state" role="status">Loading conversation…</div>}
@@ -122,6 +132,7 @@ export function ConversationView({
                 turn={turn}
                 userAvatarUrl={userAvatarUrl}
                 active={activeRun?.assistantTurnId === turn.turnId}
+                streaming={activeRun?.assistantTurnId === turn.turnId && (responseStreaming ?? activeRun?.phase === 'streaming')}
                 activity={activeRun?.assistantTurnId === turn.turnId ? activityLabel(activeRun.phase) : null}
                 activityPresentation={activityTurnId === turn.turnId ? activityPresentation : null}
                 onRetry={() => onRetry(turn.turnId)}
@@ -142,15 +153,20 @@ export function ConversationView({
           ref={composerRef}
           id="synvo-message"
           value={composerValue}
-          disabled={activeRun !== null || composerDisabled}
-          placeholder={activeRun ? 'Synvo is responding…' : composerPlaceholder ?? 'Message Synvo…'}
-          rows={2}
+          disabled={inputDisabled}
+          placeholder={composerPlaceholder ?? (activeRun ? 'Synvo is responding…' : 'Message Synvo…')}
+          rows={1}
           onChange={(event) => onComposerChange(event.target.value)}
           onKeyDown={handleKeyDown}
         />
         <div className="workspace-composer__footer">
-          <span>{activeRun ? activityLabel(activeRun.phase) : 'Enter to send · Shift + Enter for a new line'}</span>
-          {activeRun ? (
+          <span>{composerAction ? composerAction.hint : activeRun ? activityLabel(activeRun.phase) : 'Enter to send · Shift + Enter for a new line'}</span>
+          {composerAction ? (
+            <div className="workspace-composer__actions">
+              {composerAction.stop && <button className="workspace-composer__stop" type="button" disabled={composerAction.stop.disabled} onClick={onStop}><StopIcon />{composerAction.stop.label}</button>}
+              <button className="workspace-composer__submit" type="submit" disabled={inputDisabled || !composerValue.trim()}>{composerAction.busy ? 'Sending…' : composerAction.label}</button>
+            </div>
+          ) : activeRun ? (
             <button type="button" aria-label="Stop response" onClick={onStop} disabled={!activeRun.runId}>
               <StopIcon />
             </button>
@@ -158,6 +174,7 @@ export function ConversationView({
             <button type="submit" disabled={composerDisabled || !composerValue.trim()} aria-label="Send message"><ArrowUpIcon /></button>
           )}
         </div>
+        {composerAction?.feedback}
       </form>
     </section>
   )
@@ -167,6 +184,7 @@ function ConversationTurnView({
   turn,
   userAvatarUrl,
   active,
+  streaming,
   activity,
   activityPresentation,
   onRetry,
@@ -175,11 +193,14 @@ function ConversationTurnView({
   turn: ConversationTurn
   userAvatarUrl: string | null
   active: boolean
+  streaming: boolean
   activity: string | null
   activityPresentation: ReactNode
   onRetry: () => void
   onBranch?: () => void
 }) {
+  const wasActive = useRef(active)
+  useEffect(() => { if (active) wasActive.current = true }, [active])
   const assistantWaiting = turn.role === 'ASSISTANT'
     && !turn.content
     && !activityPresentation
@@ -201,15 +222,16 @@ function ConversationTurnView({
             <span /><span /><span />
           </div>
         ) : turn.content ? (
-          <div className="workspace-turn__content">
+          <div className="workspace-turn__content" data-live={active && turn.role === 'ASSISTANT'}>
             {turn.role === 'ASSISTANT' ? <AssistantMarkdown>{turn.content}</AssistantMarkdown> : turn.content}
+            {streaming && turn.role === 'ASSISTANT' && <span className="workspace-streaming-cursor" aria-hidden="true" />}
           </div>
         ) : null}
         {activityPresentation}
         {active && turn.content && activity && !activityPresentation && (
           <div className="workspace-turn__activity" role="status">{activity}</div>
         )}
-        {showAssistantActions && <AssistantTurnActions turn={turn} onBranch={onBranch} />}
+        {showAssistantActions && <AssistantTurnActions turn={turn} onBranch={onBranch} animate={wasActive.current} />}
         {turn.status === 'FAILED' && (
           <button className="workspace-retry-button" type="button" onClick={onRetry}>Retry</button>
         )}
@@ -229,7 +251,7 @@ function ConversationActivityPresentation({ children }: { children: ReactNode })
   )
 }
 
-function AssistantTurnActions({ turn, onBranch }: { turn: ConversationTurn; onBranch?: () => void }) {
+function AssistantTurnActions({ turn, onBranch, animate }: { turn: ConversationTurn; onBranch?: () => void; animate: boolean }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -254,7 +276,7 @@ function AssistantTurnActions({ turn, onBranch }: { turn: ConversationTurn; onBr
       : 'Copy response'
 
   return (
-    <div className="workspace-turn__actions" aria-label="Response actions">
+    <div className="workspace-turn__actions" aria-label="Response actions" data-live-completion={animate}>
       <button
         type="button"
         aria-label={copyLabel}

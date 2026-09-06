@@ -46,8 +46,8 @@ class RunnerApplication:
             state = "disabled"
             if self.enabled:
                 state = (
-                    "ready"
-                    if self.engine is not None and self.engine.ready()
+                    self.engine.health()
+                    if self.engine is not None
                     else "unavailable"
                 )
             return RunnerResponse(

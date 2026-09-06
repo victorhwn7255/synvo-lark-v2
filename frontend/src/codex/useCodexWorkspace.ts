@@ -22,28 +22,42 @@ interface UseCodexWorkspaceOptions {
   api: CodexApi
 }
 
+import { decisionReceiptLabel, type DecisionReceipt } from './activityPresentation'
+
+const STATUS_RECOVERY_INTERVAL_MS = 3_000
+
 export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   const [status, setStatus] = useState<CodexStatus | null>(null)
   const [workspaces, setWorkspaces] = useState<CodexWorkspace[]>([])
   const [tasks, setTasks] = useState<CodexTask[]>([])
   const [archived, setArchived] = useState(false)
-  const [search, setSearch] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [taskDetail, setTaskDetail] = useState<CodexTaskDetail | null>(null)
   const [activity, setActivity] = useState<CodexActivity[]>([])
   const [inventory, setInventory] = useState<CodexInventory>({ skills: [], mcpServers: [] })
   const [goal, setGoalState] = useState<CodexGoal | null>(null)
   const [interaction, setInteraction] = useState<CodexInteraction | null>(null)
+  const [decisionReceipts, setDecisionReceipts] = useState<DecisionReceipt[]>([])
+  const [decisionAnnouncement, setDecisionAnnouncement] = useState('')
+  const [terminalTiming, setTerminalTiming] = useState<{ operationId: string; updatedAt: string } | null>(null)
+  const [stopRequestedOperationId, setStopRequestedOperationId] = useState<string | null>(null)
+  const interactionIdRef = useRef<string | null>(null)
+  const mountedRef = useRef(true)
+  const deletedTaskIdsRef = useRef(new Set<string>())
   const [loading, setLoading] = useState(true)
   const [loadingTask, setLoadingTask] = useState(false)
   const [submitting, setSubmitting] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const subscriptionRef = useRef<CodexSubscription | null>(null)
+  const subscriptionVersionRef = useRef(0)
+  const selectionVersionRef = useRef(0)
+  const interactionVersionRef = useRef(0)
   const operationIdRef = useRef<string | null>(null)
   const terminalOperationsRef = useRef(new Map<string, CodexOperation['status']>())
   const selectedTaskIdRef = useRef<string | null>(null)
   const csrfTokenRef = useRef<string | null>(null)
+  const interactionPendingRef = useRef(false)
   const mutationInFlightRef = useRef(false)
   const initialLinkRef = useRef(readDeepLink())
 
@@ -59,36 +73,58 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [api])
 
   const loadInteraction = useCallback(async (interactionId: string, signal?: AbortSignal) => {
+    const selectionVersion = selectionVersionRef.current
+    const interactionVersion = ++interactionVersionRef.current
+    interactionIdRef.current = interactionId
+    interactionPendingRef.current = true
+    const isCurrent = () => !signal?.aborted
+      && selectionVersionRef.current === selectionVersion
+      && interactionVersionRef.current === interactionVersion
     try {
       const detail = await api.interaction(interactionId, signal)
-      if (!signal?.aborted) {
-        setInteraction(detail)
+      if (isCurrent() && detail.taskId === selectedTaskIdRef.current
+        && !terminalOperationsRef.current.has(detail.operationId)) {
+        setInteraction(detail.status === 'PENDING' ? detail : null)
+        if (detail.status !== 'PENDING') { interactionPendingRef.current = false; interactionIdRef.current = null }
       }
     } catch (failure: unknown) {
-      if (!signal?.aborted) setError(safeMessage(failure))
+      if (isCurrent()) setError(safeMessage(failure))
     }
   }, [api])
 
   const attachOperation = useCallback((operation: CodexOperation | null) => {
-    const sameOperation = operationIdRef.current === operation?.operationId
+    const sameOperation = operationIdRef.current === (operation?.operationId ?? null)
     const terminalReplay = operation !== null && isTerminalOperation(operation.status)
     if (sameOperation && !terminalReplay) return
+    const subscriptionVersion = ++subscriptionVersionRef.current
     subscriptionRef.current?.close()
     subscriptionRef.current = null
     operationIdRef.current = operation?.operationId ?? null
-    if (!sameOperation) setActivity([])
+    interactionPendingRef.current = false
+    if (!sameOperation) {
+      setActivity([])
+      setTerminalTiming(null)
+      setStopRequestedOperationId(null)
+      setDecisionAnnouncement('')
+    }
     setReconnecting(false)
     if (!operation) return
     subscriptionRef.current = api.subscribe(
       operation.operationId,
       (event) => {
+        if (subscriptionVersionRef.current !== subscriptionVersion) return
         setReconnecting(false)
         if (event.kind === 'interaction_required') {
+          interactionPendingRef.current = true
           void loadInteraction(event.interactionId)
           return
         }
         setActivity((current) => upsertActivity(current, event))
         if (event.terminalStatus !== null) {
+          interactionVersionRef.current += 1
+          interactionIdRef.current = null
+          interactionPendingRef.current = false
+          setStopRequestedOperationId(null)
           terminalOperationsRef.current.set(
             operation.operationId,
             operationStatusFromTerminal(event.terminalStatus),
@@ -102,18 +138,20 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
           setReconnecting(false)
         }
       },
-      () => setReconnecting(true),
+      () => {
+        if (subscriptionVersionRef.current === subscriptionVersion) setReconnecting(true)
+      },
     )
   }, [api, loadInteraction])
 
   const refreshTasks = useCallback(async (signal?: AbortSignal) => {
     try {
-      const next = await api.tasks(archived, search, signal)
+      const next = await api.tasks(archived, undefined, signal)
       if (!signal?.aborted) setTasks(next)
     } catch (failure: unknown) {
       if (!signal?.aborted) setError(safeMessage(failure))
     }
-  }, [api, archived, search])
+  }, [api, archived])
 
   const refreshTaskAuxiliary = useCallback(async (taskId: string, signal?: AbortSignal) => {
     const [nextInventory, nextGoal] = await Promise.allSettled([
@@ -132,6 +170,16 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     requestedInteractionId?: string | null,
     signal?: AbortSignal,
   ) => {
+    const selectionVersion = ++selectionVersionRef.current
+    interactionVersionRef.current += 1
+    interactionIdRef.current = null
+    setDecisionAnnouncement('')
+    if (selectedTaskIdRef.current !== taskId) {
+      attachOperation(null)
+      setTaskDetail(null)
+      setInventory({ skills: [], mcpServers: [] })
+      setGoalState(null)
+    }
     selectedTaskIdRef.current = taskId
     setSelectedTaskId(taskId)
     setLoadingTask(true)
@@ -139,47 +187,68 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     setInteraction(null)
     try {
       const detail = await api.task(taskId, signal)
-      if (signal?.aborted || selectedTaskIdRef.current !== taskId) return
+      if (signal?.aborted || selectionVersionRef.current !== selectionVersion) return
       const projectedDetail = projectKnownTerminalOperations(detail, terminalOperationsRef.current)
       setTaskDetail(projectedDetail)
       attachOperation(projectedDetail.activeOperation ?? projectedDetail.latestOperation)
-      const interactionId = requestedInteractionId
+      const authoritative = detail.activeOperation ?? detail.latestOperation
+      if (authoritative && isTerminalOperation(authoritative.status)) {
+        setTerminalTiming({ operationId: authoritative.operationId, updatedAt: authoritative.updatedAt })
+      }
+      const interactionId = projectedDetail.pendingInteractions.find((pending) => pending.interactionId === requestedInteractionId)?.interactionId
         ?? projectedDetail.pendingInteractions[0]?.interactionId
+        ?? requestedInteractionId
         ?? null
       updateDeepLink(taskId, interactionId)
       if (interactionId) await loadInteraction(interactionId, signal)
+      if (signal?.aborted || selectionVersionRef.current !== selectionVersion) return
+      if (interactionId && interactionIdRef.current === null) updateDeepLink(taskId, null)
       void refreshTaskAuxiliary(taskId, signal)
       return projectedDetail
     } catch (failure: unknown) {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && selectionVersionRef.current === selectionVersion) {
         setTaskDetail(null)
         setError(safeMessage(failure))
       }
       return null
     } finally {
-      if (!signal?.aborted) setLoadingTask(false)
+      if (!signal?.aborted && selectionVersionRef.current === selectionVersion) setLoadingTask(false)
     }
   }, [api, attachOperation, loadInteraction, refreshTaskAuxiliary])
 
   const synchronizeSelectedTask = useCallback(async () => {
     const taskId = selectedTaskIdRef.current
+    const selectionVersion = selectionVersionRef.current
+    const interactionVersion = interactionVersionRef.current
     if (!taskId) return null
     try {
       const detail = await api.task(taskId)
-      if (selectedTaskIdRef.current !== taskId) return null
+      if (selectionVersionRef.current !== selectionVersion) return null
       const projectedDetail = projectKnownTerminalOperations(detail, terminalOperationsRef.current)
       setTaskDetail(projectedDetail)
       setTasks((current) => upsertTask(current, projectedDetail.task))
       attachOperation(projectedDetail.activeOperation ?? projectedDetail.latestOperation)
+      const authoritative = detail.activeOperation ?? detail.latestOperation
+      if (authoritative && isTerminalOperation(authoritative.status)) {
+        setTerminalTiming({ operationId: authoritative.operationId, updatedAt: authoritative.updatedAt })
+      }
       const pending = projectedDetail.pendingInteractions[0]
+      if (interactionVersionRef.current !== interactionVersion) return projectedDetail
       if (pending) {
         await loadInteraction(pending.interactionId)
+      } else if (interactionIdRef.current && interactionPendingRef.current) {
+        // Missing task metadata is not acknowledgement. Recheck the current
+        // interaction itself before discarding a pending decision or its form.
+        await loadInteraction(interactionIdRef.current)
       } else {
+        interactionVersionRef.current += 1
+        interactionIdRef.current = null
+        interactionPendingRef.current = false
         setInteraction(null)
       }
       return projectedDetail
     } catch (failure: unknown) {
-      setError(safeMessage(failure))
+      if (selectionVersionRef.current === selectionVersion) setError(safeMessage(failure))
       return null
     }
   }, [api, attachOperation, loadInteraction])
@@ -191,34 +260,63 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [refreshTaskAuxiliary, synchronizeSelectedTask])
 
   useEffect(() => {
+    mountedRef.current = true
     const controller = new AbortController()
     const initialize = async () => {
       setLoading(true)
       setError(null)
-      try {
-        const [nextStatus, nextWorkspaces, nextTasks] = await Promise.all([
-          api.status(controller.signal),
-          api.workspaces(controller.signal),
-          api.tasks(false, undefined, controller.signal),
-        ])
-        if (controller.signal.aborted) return
-        setStatus(nextStatus)
-        setWorkspaces(nextWorkspaces)
-        setTasks(nextTasks)
-        const link = initialLinkRef.current
-        if (link.taskId) await openTask(link.taskId, link.interactionId, controller.signal)
-      } catch (failure: unknown) {
-        if (!controller.signal.aborted) setError(safeMessage(failure))
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
+      const [nextStatus, nextWorkspaces, nextTasks] = await Promise.allSettled([
+        api.status(controller.signal),
+        api.workspaces(controller.signal),
+        api.tasks(false, undefined, controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      if (nextStatus.status === 'fulfilled') setStatus(nextStatus.value)
+      else setStatus(unavailableStatus())
+      if (nextWorkspaces.status === 'fulfilled') setWorkspaces(nextWorkspaces.value)
+      if (nextTasks.status === 'fulfilled') setTasks(nextTasks.value)
+
+      const failure = [nextStatus, nextWorkspaces]
+        .find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (failure) setError(safeMessage(failure.reason))
+
+      const link = initialLinkRef.current
+      if (link.taskId && nextTasks.status === 'fulfilled') {
+        await openTask(link.taskId, link.interactionId, controller.signal)
       }
+      if (!controller.signal.aborted) setLoading(false)
     }
     void initialize()
     return () => {
+      mountedRef.current = false
       controller.abort()
+      selectionVersionRef.current += 1
+      subscriptionVersionRef.current += 1
       subscriptionRef.current?.close()
     }
   }, [api, openTask])
+
+  useEffect(() => {
+    if (loading || status?.state === 'READY' || status?.state === 'DISABLED') return
+    const controller = new AbortController()
+    const pollStatus = async () => {
+      const [nextStatus, nextWorkspaces] = await Promise.allSettled([
+        api.status(controller.signal),
+        api.workspaces(controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      if (nextStatus.status === 'fulfilled') setStatus(nextStatus.value)
+      if (nextWorkspaces.status === 'fulfilled') setWorkspaces(nextWorkspaces.value)
+      const failure = [nextStatus, nextWorkspaces]
+        .find((result): result is PromiseRejectedResult => result.status === 'rejected')
+      setError(failure ? safeMessage(failure.reason) : null)
+    }
+    const interval = window.setInterval(() => void pollStatus(), STATUS_RECOVERY_INTERVAL_MS)
+    return () => {
+      window.clearInterval(interval)
+      controller.abort()
+    }
+  }, [api, loading, status?.state])
 
   useEffect(() => {
     if (loading) return
@@ -228,14 +326,23 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
       window.clearTimeout(timeout)
       controller.abort()
     }
-  }, [archived, loading, refreshTasks, search])
+  }, [archived, loading, refreshTasks])
 
   const clearSelection = useCallback(() => {
+    interactionIdRef.current = null
+    setDecisionAnnouncement('')
+    setTerminalTiming(null)
+    setStopRequestedOperationId(null)
+    selectionVersionRef.current += 1
+    subscriptionVersionRef.current += 1
+    interactionVersionRef.current += 1
     subscriptionRef.current?.close()
     subscriptionRef.current = null
     operationIdRef.current = null
+    interactionPendingRef.current = false
     selectedTaskIdRef.current = null
     setSelectedTaskId(null)
+    setLoadingTask(false)
     setTaskDetail(null)
     setActivity([])
     setInventory({ skills: [], mcpServers: [] })
@@ -245,7 +352,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     updateDeepLink(null, null)
   }, [])
 
-  const mutate = useCallback(async <T,>(name: string, action: (token: string) => Promise<T>) => {
+  const mutate = useCallback(async <T,>(name: string, action: (token: string) => Promise<T>, ownsError: () => boolean = () => true) => {
     if (mutationInFlightRef.current) throw new Error('Another Codex action is already being submitted.')
     mutationInFlightRef.current = true
     setSubmitting(name)
@@ -253,7 +360,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     try {
       return await action(await csrfToken())
     } catch (failure: unknown) {
-      setError(safeMessage(failure))
+      if (ownsError()) setError(safeMessage(failure))
       throw failure
     } finally {
       mutationInFlightRef.current = false
@@ -312,7 +419,6 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [api, updateTaskById])
 
   const archiveTaskById = useCallback(async (taskId: string, enabled: boolean) => {
-    const selected = selectedTaskIdRef.current === taskId
     const updated = await updateTaskById(
       enabled ? 'archive-task' : 'unarchive-task',
       taskId,
@@ -320,7 +426,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     )
     if (updated) {
       setTasks((current) => current.filter((task) => task.taskId !== taskId))
-      if (selected) clearSelection()
+      if (selectedTaskIdRef.current === taskId) clearSelection()
       await refreshTasks()
     }
     return updated
@@ -341,10 +447,11 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
   }, [api, mutate, openTask])
 
   const deleteTaskById = useCallback(async (taskId: string) => {
-    const selected = selectedTaskIdRef.current === taskId
     await mutate('delete-task', (token) => api.deleteTask(taskId, token))
+    deletedTaskIdsRef.current.add(taskId)
+    setDecisionReceipts((current) => current.filter((receipt) => receipt.taskId !== taskId))
     setTasks((current) => current.filter((task) => task.taskId !== taskId))
-    if (selected) clearSelection()
+    if (selectedTaskIdRef.current === taskId) clearSelection()
   }, [api, clearSelection, mutate])
 
   const deleteTask = useCallback(() => {
@@ -356,26 +463,68 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     decision: CodexInteractionDecision,
     formValues: Record<string, string>,
   ) => {
-    const interactionId = interaction?.interactionId
-    if (!interactionId) return
-    await mutate('interaction-decision', (token) => api.decideInteraction(
-      interactionId, decision, formValues, token,
-    ))
+    if (!interaction) return
+    const { interactionId, taskId, operationId } = interaction
+    const selectionVersion = selectionVersionRef.current
+    const ownsSelection = () => mountedRef.current && selectionVersionRef.current === selectionVersion
+      && selectedTaskIdRef.current === taskId
+    const ownsInteraction = () => ownsSelection() && interactionIdRef.current === interactionId
+    const confirmed = await mutate('interaction-decision', async (token) => {
+      if (!ownsInteraction() || interaction.status !== 'PENDING' || terminalOperationsRef.current.has(operationId)) {
+        throw new Error('This decision is no longer current. Review the task state before trying again.')
+      }
+      const response = await api.decideInteraction(interactionId, decision, formValues, token)
+      if (response.taskId !== taskId || response.operationId !== operationId || response.interactionId !== interactionId
+        || response.status !== 'DECIDED' || !response.decision
+        || !['APPROVE_ONCE', 'DECLINE', 'CANCEL'].includes(response.decision)) {
+        throw new Error('The decision was not confirmed. Refresh the task before trying again.')
+      }
+      return response.decision
+    }, ownsInteraction)
+    if (!mountedRef.current || deletedTaskIdsRef.current.has(taskId)) return
+    const receipt: DecisionReceipt = { taskId, operationId, interactionId, decision: confirmed }
+    setDecisionReceipts((current) => [
+      ...current.filter((item) => item.taskId !== taskId),
+      ...current.filter((item) => item.taskId === taskId && item.interactionId !== interactionId).slice(-19), receipt,
+    ])
+    // A replacement dialog or selection owns its focus and announcement. A late
+    // acknowledgement may be retained for its task but cannot dismiss that UI.
+    if (!ownsInteraction()) return
+    interactionVersionRef.current += 1
+    interactionIdRef.current = null
     setInteraction(null)
-    updateDeepLink(selectedTaskIdRef.current, null)
+    interactionPendingRef.current = false
+    setDecisionAnnouncement(decisionReceiptLabel(confirmed))
+    updateDeepLink(taskId, null)
     await refreshSelectedTask()
-  }, [api, interaction?.interactionId, mutate, refreshSelectedTask])
+  }, [api, interaction, mutate, refreshSelectedTask])
 
-  const steer = useCallback(async (content: string) => {
-    const operationId = taskDetail?.activeOperation?.operationId
-    if (!operationId) return
-    await mutate('steer', (token) => api.steer(operationId, content, token))
-  }, [api, mutate, taskDetail?.activeOperation?.operationId])
+  const steer = useCallback(async (content: string, expectedOperationId?: string) => {
+    const operationId = expectedOperationId ?? taskDetail?.activeOperation?.operationId
+    const taskId = taskDetail?.task.taskId
+    const selectionVersion = selectionVersionRef.current
+    await mutate('steer', async (token) => {
+      // Recheck after CSRF acquisition: selection or terminal SSE may have changed.
+      if (!operationId || selectionVersionRef.current !== selectionVersion || selectedTaskIdRef.current !== taskId
+        || operationIdRef.current !== operationId
+        || terminalOperationsRef.current.has(operationId)
+        || taskDetail?.activeOperation?.status !== 'RUNNING' || interaction || interactionPendingRef.current) {
+        throw new Error('This operation is no longer available for an instruction update. Your draft is retained.')
+      }
+      await api.steer(operationId, content, token)
+    })
+  }, [api, interaction, mutate, taskDetail])
 
   const stopOperation = useCallback(async () => {
     const operationId = taskDetail?.activeOperation?.operationId
     if (!operationId) return
-    await mutate('stop-operation', (token) => api.stopOperation(operationId, token))
+    setStopRequestedOperationId(operationId)
+    try {
+      await mutate('stop-operation', (token) => api.stopOperation(operationId, token))
+    } catch (failure) {
+      setStopRequestedOperationId((current) => current === operationId ? null : current)
+      throw failure
+    }
   }, [api, mutate, taskDetail?.activeOperation?.operationId])
 
   const updateGoal = useCallback(async (objective: string, command: CodexGoalCommand) => {
@@ -397,13 +546,14 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     const taskId = selectedTaskIdRef.current
     if (!taskId) return
     await mutate('clear-goal', (token) => api.clearGoal(taskId, token))
-    setGoalState(null)
+    if (selectedTaskIdRef.current === taskId) setGoalState(null)
   }, [api, mutate])
 
   const startReview = useCallback(async (kind: CodexReviewKind, value: string | null) => {
     const taskId = selectedTaskIdRef.current
     if (!taskId) return
     const operation = await mutate('start-review', (token) => api.review(taskId, kind, value, token))
+    if (selectedTaskIdRef.current !== taskId) return
     setTaskDetail((current) => current
       ? { ...current, activeOperation: operation, latestOperation: operation }
       : current)
@@ -416,14 +566,16 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     tasks,
     archived,
     setArchived,
-    search,
-    setSearch,
     selectedTaskId,
     taskDetail,
     activity,
     inventory,
     goal,
     interaction,
+    decisionReceipts,
+    decisionAnnouncement,
+    terminalTiming,
+    stopRequestedOperationId,
     loading,
     loadingTask,
     submitting,
@@ -434,6 +586,7 @@ export function useCodexWorkspace({ api }: UseCodexWorkspaceOptions) {
     clearSelection,
     synchronizeSelectedTask,
     refreshSelectedTask,
+    refreshTasks,
     createTask,
     renameTask,
     renameTaskById,
@@ -485,6 +638,16 @@ function updateDeepLink(taskId: string | null, interactionId: string | null) {
 
 function safeMessage(error: unknown) {
   return error instanceof Error ? error.message : 'The Codex task action could not be completed.'
+}
+
+function unavailableStatus(): CodexStatus {
+  return {
+    state: 'UNAVAILABLE',
+    model: null,
+    runtimeVersion: null,
+    reasoningEfforts: [],
+    account: null,
+  }
 }
 
 function isTerminalOperation(status: CodexOperation['status']) {

@@ -3,11 +3,12 @@ package synvo.api;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.IntStream;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import synvo.agent.AgentEventPublisher;
@@ -20,8 +21,9 @@ final class ConversationEventStream implements AgentEventPublisher {
 	private static final long EMITTER_TIMEOUT_MILLIS = Duration.ofMinutes(30).toMillis();
 
 	private final ConversationStore conversationStore;
-	private final Map<UUID, Object> runLocks = new HashMap<>();
-	private final Map<UUID, List<Subscriber>> subscribers = new HashMap<>();
+	// Bound lock retention; different stripes still share a concurrent subscriber index.
+	private final Object[] runLocks = IntStream.range(0, 64).mapToObj(ignored -> new Object()).toArray();
+	private final Map<UUID, List<Subscriber>> subscribers = new ConcurrentHashMap<>();
 
 	ConversationEventStream(ConversationStore conversationStore) {
 		this.conversationStore = conversationStore;
@@ -94,8 +96,8 @@ final class ConversationEventStream implements AgentEventPublisher {
 		}
 	}
 
-	private synchronized Object lockFor(UUID runId) {
-		return runLocks.computeIfAbsent(runId, ignored -> new Object());
+	private Object lockFor(UUID runId) {
+		return runLocks[Math.floorMod(runId.hashCode(), runLocks.length)];
 	}
 
 	private void remove(UUID runId, Subscriber subscriber) {

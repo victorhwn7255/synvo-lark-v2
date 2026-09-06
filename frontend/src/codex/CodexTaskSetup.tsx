@@ -5,21 +5,34 @@ import codexLogo from '../../assets/codex.png'
 
 export function CodexTaskSetup({
   status,
+  defaultReasoningEffort,
   workspaces,
   submitting,
   error,
   onCreate,
+  creationUncertain = false,
+  retainedRequest = '',
+  onReviewTasks,
+  onConfirmRetry,
 }: {
   status: CodexStatus | null
+  defaultReasoningEffort: string
   workspaces: CodexWorkspace[]
   submitting: boolean
   error: string | null
-  onCreate: (workspaceId: string, mode: CodexRunMode, title?: string) => Promise<void>
+  onCreate: (workspaceId: string, mode: CodexRunMode, request: string, title?: string) => Promise<void>
+  creationUncertain?: boolean
+  retainedRequest?: string
+  onReviewTasks?: () => void
+  onConfirmRetry?: () => void
 }) {
   const [workspaceId, setWorkspaceId] = useState('')
   const [mode, setMode] = useState<CodexRunMode>('READ_ONLY')
   const [title, setTitle] = useState('')
+  const [request, setRequest] = useState(retainedRequest)
   const selectedWorkspace = workspaces.find(({ id }) => id === workspaceId) ?? null
+  const defaultsAvailable = Boolean(status?.model && defaultReasoningEffort)
+  const effortLabel = defaultReasoningEffort.replaceAll('_', ' ').replace(/^./, (character) => character.toUpperCase())
 
   useEffect(() => {
     if (!workspaceId && workspaces[0]) {
@@ -36,7 +49,9 @@ export function CodexTaskSetup({
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (workspaceId) void onCreate(workspaceId, mode, title || undefined)
+    if (!submitting && !creationUncertain && status?.state === 'READY' && defaultsAvailable && selectedWorkspace && request.trim()) {
+      void onCreate(workspaceId, mode, request.trim(), title || undefined).catch(() => {})
+    }
   }
 
   const ready = status?.state === 'READY'
@@ -53,17 +68,42 @@ export function CodexTaskSetup({
           <span>Codex</span>
         </span>
       </div>
-      <h2 id="codex-task-setup-title">Create a New Task</h2>
-      <p>Select a folder directory and access mode for this task.</p>
-
+      <h2 id="codex-task-setup-title">What would you like to work on?</h2>
       <div className="codex-runtime-status" data-state={status?.state.toLowerCase() ?? 'loading'} role="status">
         <strong>{runtimeLabel(status)}</strong>
-        {status?.model && <span>{status.model} · App Server {status.runtimeVersion}</span>}
+        {ready && <span className="codex-runtime-status__defaults">
+          <span>{status.model === 'gpt-5.6-sol' ? 'GPT-5.6 Sol' : status.model || 'Model unavailable'}</span>
+          <span>{effortLabel ? `${effortLabel} effort` : 'Effort unavailable'}</span>
+        </span>}
+        {ready && defaultReasoningEffort && defaultReasoningEffort !== 'high' && (
+          <small className="codex-runtime-status__fallback">High effort unavailable; using {effortLabel}.</small>
+        )}
       </div>
 
       {error && <div className="codex-inline-error" role="alert">{error}</div>}
 
-      <form onSubmit={submit}>
+      {creationUncertain && <div className="codex-start-recovery" role="status">
+        <p>Could not confirm task creation. Check the refreshed task list before trying again.</p>
+        <button type="button" onClick={onReviewTasks}>Review tasks</button>
+        <button type="button" onClick={onConfirmRetry}>I checked — allow another creation</button>
+      </div>}
+      <form onSubmit={submit} aria-label="Start a task">
+        <label>
+          <span>Task title <small>optional</small></span>
+          <input
+            value={title}
+            maxLength={160}
+            disabled={!ready || submitting}
+            placeholder="New Codex task"
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </label>
+        <label className="codex-task-setup__request">
+          <span>Your request</span>
+          <textarea value={request} rows={3} maxLength={20_000} required disabled={submitting}
+            placeholder="Summarize this month’s sales and highlight what changed."
+            onChange={(event) => setRequest(event.target.value)} />
+        </label>
         <label>
           <span>Workspace</span>
           <span className="codex-task-setup__select-wrap">
@@ -102,22 +142,12 @@ export function CodexTaskSetup({
                 disabled={!selectedWorkspace?.writeEnabled}
                 onChange={() => setMode('WORKSPACE_WRITE')}
               />
-              <span><strong>Full Edit</strong><small>Edit files and run commands inside this folder automatically. Access outside stays blocked.</small></span>
+              <span><strong>Edit workspace files</strong><small>Permitted edits and commands stay inside this workspace. External access remains blocked.</small></span>
             </label>
           </div>
         </fieldset>
-        <label>
-          <span>Task title <small>optional</small></span>
-          <input
-            value={title}
-            maxLength={160}
-            disabled={!ready || submitting}
-            placeholder="New Codex task"
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
-        <button type="submit" disabled={!ready || !workspaceId || submitting}>
-          {submitting ? 'Creating task…' : 'Create task'}
+        <button type="submit" disabled={!ready || !defaultsAvailable || !selectedWorkspace || !request.trim() || submitting || creationUncertain}>
+          {submitting ? 'Starting task…' : 'Start task'}
         </button>
       </form>
     </section>
@@ -141,8 +171,10 @@ function SelectChevronIcon() {
 function runtimeLabel(status: CodexStatus | null) {
   switch (status?.state) {
     case 'READY': return 'Codex is ready'
+    case 'RECOVERING': return 'Codex is reconnecting automatically…'
     case 'AUTHENTICATION_REQUIRED': return 'Codex login is required on the runner host'
     case 'DISABLED': return 'Codex is disabled in this environment'
+    case 'PROTOCOL_INCOMPATIBLE': return 'The pinned Codex runtime is incompatible'
     case 'UNAVAILABLE': return 'Codex is temporarily unavailable'
     default: return 'Checking Codex…'
   }

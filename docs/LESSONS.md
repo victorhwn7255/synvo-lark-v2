@@ -1290,3 +1290,251 @@ include that file in every build context—especially multi-stage Docker builds.
 - `backend/config/pmd/unused-code.xml`
 - `backend/Dockerfile`
 - `backend/src/main/java/synvo/integration/codex/CodexRunnerClient.java`
+
+## 2026-08-28 — Optional runtime metadata and mutable base tags must not gate readiness
+
+### Symptom
+
+H5 stayed on “Checking Codex” and reported Codex unavailable even though the
+runner process, App Server initialization, model inventory, and ChatGPT login
+were healthy. Rebuilding the runner then caused its sandbox startup check to
+fail.
+
+### Root cause
+
+The runner treated `account/rateLimits/read` as mandatory account state. Pinned
+App Server `0.148.0` returned protocol error `-32603` for that optional usage
+request while `account/read` and `model/list` continued to succeed. The runner
+converted the optional failure into `RUNNER_UNAVAILABLE`, so the backend hid
+otherwise usable workspaces.
+
+Separately, the mutable `python:3.13-slim` image tag moved from Debian Bookworm
+to Trixie. Trixie's Bubblewrap `0.12` could not mount `/proc` under the runner's
+restricted Compose capabilities, while Bookworm's Bubblewrap `0.8` remained
+compatible.
+
+### Resolution
+
+- Preserve verified authentication when only rate-limit metadata is rejected;
+  expose plan, usage, and reset time as unavailable instead of disabling Codex.
+- Keep transport failures and the authoritative `account/read` request
+  fail-closed.
+- Replace a failed App Server client behind one single-flight recovery worker.
+  Capability-check the replacement before publishing `ready`, terminalize any
+  active operation exactly once, and never replay user work implicitly.
+- Report `recovering`, `protocolIncompatible`, and `unavailable` separately so
+  H5 can keep usable data visible and poll back to `ready` without a reload.
+- Keep retry ownership inside the existing Lark lifecycle and continue bounded
+  replacement attempts after a failed reconnect.
+- Pin the runner's Python, Node, and Java bases by immutable digest, and pin the
+  compatible Bubblewrap package version, so upstream tag movement cannot
+  silently replace the sandbox implementation.
+
+### Preventive rule
+
+Classify runtime probes as authoritative or optional before composing a health
+or readiness response. Optional usage and presentation metadata must degrade
+independently. Test every optional failure branch.
+
+Cached startup success is not live readiness. Probe a Stable App Server method
+after a short freshness interval, serialize recovery, preserve exactly-one
+terminal ownership, and do not replay an interrupted turn. Surface a safe,
+precise recovery state rather than collapsing all failures into unavailable.
+
+Container tags are not stable runtime inputs, even when they name a
+distribution. Pin the image digest and sandbox package version, keep the
+sandbox self-check as a startup gate, and rebuild the runner in routine
+verification so upstream changes are discovered before a live environment is
+replaced.
+
+### Regression coverage and live verification
+
+- Added a runner regression proving rejected rate-limit metadata returns a
+  valid authenticated account with null usage fields.
+- All 65 runner tests and 3 subtests passed, including stale readiness,
+  single-flight replacement, no replay, exactly-one terminal, protocol
+  incompatibility, and precise HTTP health-state coverage.
+- All 240 backend tests and the full Maven package/PMD gate passed.
+- All 107 frontend tests, type checking, linting, and the production build
+  passed, including partial startup failure and no-reload recovery coverage.
+- The digest-pinned runner image rebuilt with Python 3.13.15, Node 22.23.2,
+  Codex 0.148.0, Bubblewrap 0.8.0, and Java 21.0.12.
+- Compose configuration validated and all four services became healthy. The
+  backend and H5 status routes returned ready, and the Lark WebSocket reported
+  connected.
+- The live sandbox self-check passed before and after recovery.
+- Terminating the live App Server process group produced
+  `ready -> recovering -> ready` without restarting the runner container.
+
+### Relevant areas
+
+- `runner/Dockerfile`
+- `runner/synvo_runner/engine.py`
+- `runner/synvo_runner/protocol.py`
+- `runner/synvo_runner/runtime.py`
+- `runner/tests/test_engine.py`
+- `backend/src/main/java/synvo/lark/channel/LarkChannelLifecycle.java`
+- `frontend/src/codex/useCodexWorkspace.ts`
+
+## 2026-09-05 — Verify package launchers in the final container stage
+
+### Symptom
+
+The runner image built and reported healthy, but both `npm --version` and
+`npx --version` failed with a missing `../lib/cli.js` module.
+
+### Root cause
+
+Cross-stage `COPY` dereferenced the Node image's npm/npx launcher symlinks.
+The final image contained ordinary launcher files under `/usr/local/bin`, so
+their relative imports no longer resolved within the npm package directory.
+Copying `node_modules` did not repair the relocated entry points.
+
+### Why it was missed
+
+The image tested Codex startup and the sandbox, but never executed these two
+packaged tools from the final runtime layout. A successful multi-stage build
+was treated as proof that the copied launchers remained usable.
+
+### Resolution
+
+Copy Node and its package directory, recreate npm/npx symlinks to their real
+entry points, and execute both version commands during the final-stage build.
+Keep the existing immutable base images and sandbox package pin unchanged.
+
+### Preventive rule
+
+When transferring a runtime between image stages, preserve executable-to-package
+relationships explicitly and smoke-test the actual final-stage entry points.
+Testing an executable only in the stage that installed it is insufficient.
+
+### Verification
+
+- Both version commands failed in the original deployed runner.
+- The rebuilt image passed both build-time launcher checks.
+- The replacement runner returned `10.9.8` for both npm and npx.
+- Its sandbox preflight passed, its health state was `ready`, and all four
+  enabled Compose services became healthy.
+
+### Relevant areas
+
+- `runner/Dockerfile`
+- `runner/synvo_runner/runtime.py`
+
+## 2026-09-05 — Streaming recovery must preserve replay and request ownership
+
+### Symptom
+
+Reopening an active conversation duplicated its saved answer prefix. Delayed
+task reads, approval reads, and old activity callbacks could overwrite a newer
+H5 selection. At the private runner boundary, a different thread's events or
+an earlier turn's completion could be assigned to the currently active turn.
+
+### Root cause
+
+H5 appended a replay starting at sequence zero to an already persisted partial
+answer. Its asynchronous reads and callbacks also relied on mutable current
+selection rather than validating the selection that initiated them. The
+runner's single-active-operation lease was incorrectly treated as sufficient
+event identity, including when notifications preceded the start response.
+
+### Why it was missed
+
+Fixtures primarily delivered responses in request order and replayed into an
+empty answer. They did not interleave old and new selections, foreign thread
+events, or a stale completion before the new turn reference became available.
+
+### Resolution
+
+Rebuild only the active assistant answer from the complete replay. Guard H5
+selection, interaction, and activity callbacks with request generations. At
+the private runner boundary, match supplied thread/turn identifiers and buffer
+early identified events until the start response confirms the owning turn.
+Bound that early-event queue and fail closed on overflow.
+
+### Preventive rule
+
+A concurrency lease is not event identity. Every asynchronous result must
+still belong to its initiating selection or operation before changing current
+state. Reconnection must use either a snapshot plus its matching cursor or a
+complete replay into empty active state, never both the snapshot and the same
+prefix again. Test reversed response ordering and early/stale terminal events.
+
+### Verification
+
+- New regressions reproduced duplicate partial text and stale conversation,
+  task, approval, and activity updates before the fixes.
+- Runner regressions reproduced foreign-thread delivery and premature
+  completion before the start response; the fixed path preserves the matching
+  answer and exactly one terminal event.
+- All 115 frontend tests passed, plus typecheck, lint, and production build.
+- All 70 runner tests and 240 backend tests passed; Maven packaging and PMD
+  also passed. These are automated proofs, not a claim that an authenticated
+  in-Lark reload was observed during this audit.
+
+### Relevant areas
+
+- `frontend/src/conversation/useConversation.ts`
+- `frontend/src/conversation/useConversation.test.ts`
+- `frontend/src/codex/useCodexWorkspace.ts`
+- `frontend/src/codex/CodexWorkspace.test.tsx`
+- `runner/synvo_runner/engine.py`
+- `runner/tests/test_engine.py`
+
+## 2026-09-06 — Preview fixtures and asynchronous refreshes must respect event authority
+
+### Symptom
+
+The local prototype received activity but showed zero milestones. Later,
+interaction verification exposed a pending drawer disappearing during task
+synchronization. The live decision test then rejected a successful acknowledgement.
+
+### Root cause
+
+The prototype emitted lowercase activity names while production consumed the
+uppercase normalized contract. Separately, a task response with no pending
+interaction was treated as authority to discard an independently loaded
+interaction. The receipt check copied an older mock status `RESOLVED`, but the
+actual backend returns `DECIDED` after applying a user decision.
+
+### Why it was missed
+
+Visual fixtures were not checked against the real activity projection. Fast
+successful reads hid the difference between task metadata and the authoritative
+interaction record. Existing decision mocks were not checked against the
+backend response before their values became presentation acceptance conditions.
+
+### Resolution
+
+Use the normalized vocabulary and real terminal shape in fixtures and test them
+against the production projection. Guard refreshes with interaction generation,
+recheck the current interaction when task metadata omits it, and initialize
+form values synchronously under their interaction identity. Match the real
+`DECIDED` response and reject unknown/expired statuses. Keep exact decision
+receipts dependent on an identity-matched resolved decision API acknowledgement.
+
+### Preventive rule
+
+A preview must exercise the same semantic contract as production. Verify
+response status values in the authoritative producer, not an existing mock. A missing
+entry in another resource is not confirmation that an interaction resolved.
+Do not discard pending input or infer a successful decision from absence.
+
+### Verification
+
+- `design/prototype/src/demo.test.ts`: five synthetic fixture/projection cases.
+- `CodexWorkspace.test.tsx`: pending metadata omission/recheck, acknowledged
+  receipts, ambiguity, replacement, selection, CSRF and terminal metadata races.
+- `CodexInteractionDrawer.test.tsx`: preserved fields on refresh and isolated
+  defaults for replacement interactions.
+- Complete frontend suite passed 169 tests on 2026-09-06, including the five
+  local prototype regressions; typecheck, lint and both builds passed.
+- Authenticated desktop Lark completed the fixed MCP fixture with two one-time
+  acknowledgements and two corresponding receipts after the contract correction.
+
+### Relevant areas
+
+- `frontend/src/codex/activityPresentation.ts`
+- `frontend/src/codex/useCodexWorkspace.ts`
+- `frontend/src/codex/CodexInteractionDrawer.tsx`
+- `frontend/design/prototype/src/demo.ts`

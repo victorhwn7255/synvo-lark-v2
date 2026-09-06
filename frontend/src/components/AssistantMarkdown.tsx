@@ -1,5 +1,7 @@
 import { Children, type ReactNode } from 'react'
 import Markdown, { type Components } from 'react-markdown'
+import { gfmTable } from 'micromark-extension-gfm-table'
+import { gfmTableFromMarkdown } from 'mdast-util-gfm-table'
 
 const workspaceReferencePrefix = 'synvo-workspace-reference:'
 
@@ -20,9 +22,25 @@ const allowedElements = [
   'pre',
   'strong',
   'ul',
+  'table', 'thead', 'tbody', 'tr', 'th', 'td',
 ]
 
+// Add only table grammar to the existing remark parser; no autolinks or task inputs.
+function remarkTables(this: { data(): object }) {
+  const data = this.data() as {
+    micromarkExtensions?: ReturnType<typeof gfmTable>[]
+    fromMarkdownExtensions?: ReturnType<typeof gfmTableFromMarkdown>[]
+  }
+  const syntax = (data.micromarkExtensions ??= [])
+  const tree = (data.fromMarkdownExtensions ??= [])
+  syntax.push(gfmTable())
+  tree.push(gfmTableFromMarkdown())
+}
+
 const components: Components = {
+  table: ({ children }) => <div className="assistant-table-scroll" role="region" aria-label="Table — scroll horizontally if needed" tabIndex={0}><table>{children}</table></div>,
+  th: ({ children, style }) => <th scope="col" style={style}>{children}</th>,
+  td: ({ children, style }) => <td style={style}>{children}</td>,
   a: ({ children, href }) => {
     const workspaceReference = readWorkspaceReference(href)
     if (workspaceReference) {
@@ -52,6 +70,7 @@ export function AssistantMarkdown({ children }: { children: string }) {
 
   return (
     <Markdown
+      remarkPlugins={[remarkTables]}
       allowedElements={allowedElements}
       components={components}
       skipHtml
@@ -73,7 +92,7 @@ function getCompactLineEntries(content: string) {
   const containsAuthoredStructure = entries.some((entry) => (
     /^(?:[-+*]\s+|\d+[.)]\s+|#{1,6}\s+|>\s+|```|~~~)/.test(entry)
   ))
-  if (containsAuthoredStructure) return null
+  if (containsAuthoredStructure || entries.some((entry) => entry.includes('|'))) return null
 
   const containsSentenceLikeLine = entries.some((entry) => (
     entry.length > 160 || /[.!?:;]["')\]]?$/.test(entry)

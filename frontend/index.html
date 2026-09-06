@@ -2,11 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta
       name="description"
       content="Synvo AI Assistant — controlled Codex tasks in configured workspaces through Lark Chat and H5."
     />
+    <meta name="theme-color" content="#171819" />
+    <!-- Resolve before stylesheet paint; appearance.ts owns live changes. -->
+    <script id="appearance-bootstrap">
+      try {
+        const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const light = window.matchMedia('(prefers-color-scheme: light)').matches;
+        if (dark !== light) {
+          document.documentElement.dataset.appearance = dark ? 'dark' : 'light';
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        }
+      } catch { /* Appearance must never block startup. */ }
+    </script>
     <title>Synvo AI Assistant</title>
   </head>
   <body>

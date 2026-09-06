@@ -42,6 +42,24 @@ describe('CodexInteractionDrawer', () => {
     for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled()
   })
 
+  it('preserves inputs during metadata refresh and starts replacement interaction fields from their own defaults', () => {
+    const initial = interaction()
+    const form: CodexInteraction = { ...initial, kind: 'MCP_ELICITATION', detail: { ...initial.detail!, fields: [
+      { name: 'confirm', label: 'Confirm', type: 'BOOLEAN', required: true, options: [], maxLength: 0 },
+      { name: 'note', label: 'Note', type: 'TEXT', required: true, options: [], maxLength: 100 },
+    ] } }
+    const { rerender } = render(<Drawer interaction={form} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirm (required)' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note (required)' }), { target: { value: 'Synthetic confirmation' } })
+    rerender(<Drawer interaction={{ ...form }} />)
+    expect(screen.getByRole('checkbox', { name: 'Confirm (required)' })).toBeChecked()
+    expect(screen.getByRole('textbox', { name: 'Note (required)' })).toHaveValue('Synthetic confirmation')
+    rerender(<Drawer interaction={{ ...form, interactionId: 'interaction-2' }} />)
+    expect(screen.getByRole('checkbox', { name: 'Confirm (required)' })).not.toBeChecked()
+    expect(screen.getByRole('textbox', { name: 'Note (required)' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Approve once' })).toBeDisabled()
+  })
+
   it('offers only a one-time approval for a bounded interaction', () => {
     render(<Drawer />)
 

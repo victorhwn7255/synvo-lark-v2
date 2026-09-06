@@ -183,6 +183,16 @@ class InteractionRegistry:
                     interaction.decision = "cancel"
             self._condition.notify_all()
 
+    def discard_operation(self, operation_id: str) -> None:
+        """Forget transient detail when its completed operation leaves replay."""
+        with self._condition:
+            for interaction_id, interaction in list(self._interactions.items()):
+                if interaction.operation_id == operation_id:
+                    if interaction.decision is None:
+                        interaction.decision = "cancel"
+                    del self._interactions[interaction_id]
+            self._condition.notify_all()
+
     def _new_interaction(
         self,
         operation_id: str,

@@ -42,8 +42,8 @@
   display: grid;
   place-items: center;
   border-radius: .8rem;
-  background: var(--violet-soft);
-  color: var(--violet-strong);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .workspace-settings__section h3 {
@@ -91,14 +91,15 @@
   border: 1px solid color-mix(in srgb, var(--negative) 20%, var(--border));
   border-radius: .7rem;
   padding: 0 .85rem;
-  background: transparent;
-  color: var(--negative);
+  background: var(--destructive);
+  color: var(--on-destructive);
   font-size: .7rem;
   font-weight: 670;
+  border-color: var(--destructive);
 }
 
 .workspace-danger-button:not(:disabled):hover {
-  background: var(--negative-soft);
+  background: var(--destructive);
 }
 
 .workspace-danger-button:disabled {
@@ -113,7 +114,7 @@
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgb(12 10 24 / 58%);
+  background: var(--backdrop);
   backdrop-filter: blur(4px);
   animation: workspace-dialog-fade 160ms ease-out;
 }
@@ -127,7 +128,7 @@
   border-radius: 1rem;
   padding: 1.15rem;
   background: var(--surface-strong);
-  box-shadow: 0 24px 70px -28px rgb(7 5 20 / 78%);
+  box-shadow: var(--shadow-dialog);
   animation: workspace-dialog-enter 190ms cubic-bezier(.22, 1, .36, 1);
 }
 
@@ -185,9 +186,9 @@
 }
 
 .workspace-dialog__actions button:last-child {
-  border-color: var(--negative);
-  background: var(--negative);
-  color: white;
+  border-color: var(--destructive);
+  background: var(--destructive);
+  color: var(--on-destructive);
 }
 
 .workspace-dialog__actions button:not(:disabled):hover {
@@ -272,7 +273,7 @@
     right: 0;
     bottom: 0;
     width: min(21rem, 88%);
-    box-shadow: -24px 0 60px -38px rgb(12 10 30 / 70%);
+    box-shadow: var(--shadow-panel);
   }
 }
 
@@ -290,7 +291,7 @@
     bottom: 0;
     left: 0;
     width: min(17rem, 82vw);
-    box-shadow: 18px 0 48px -36px rgb(12 10 30 / 85%);
+    box-shadow: var(--shadow-navigation);
   }
 
   .workspace-shell[data-sidebar-collapsed="true"] .workspace-sidebar {
@@ -340,3 +341,8 @@
     border-radius: .95rem;
   }
 }
+
+.workspace-settings__diagnostics { margin-top: 1rem; padding: 1.2rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); color: var(--ink-soft); font-size: .875rem; }
+.workspace-settings__diagnostics summary { cursor: pointer; color: var(--ink); }
+.workspace-settings__diagnostics dl > div { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; }
+.workspace-settings dd { overflow-wrap: anywhere; }

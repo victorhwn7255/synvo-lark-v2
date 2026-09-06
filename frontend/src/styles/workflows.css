@@ -3,7 +3,7 @@
   min-height: 0;
   overflow: auto;
   border-left: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-muted) 48%, var(--surface-strong));
+  background: var(--surface-panel);
 }
 
 .workspace-artifact-panel__header {
@@ -126,7 +126,7 @@
 .workflow-card a {
   display: inline-flex;
   margin-top: .65rem;
-  color: var(--violet-strong);
+  color: var(--accent-strong);
   font-size: .68rem;
   font-weight: 680;
   text-decoration: none;

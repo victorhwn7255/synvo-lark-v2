@@ -19,6 +19,7 @@ import org.springframework.dao.DuplicateKeyException;
 import synvo.workspaceagent.WorkspaceAgentEngine.Activity;
 import synvo.workspaceagent.WorkspaceAgentEngine.ActivityBatch;
 import synvo.workspaceagent.WorkspaceAgentEngine.ActivityKind;
+import synvo.workspaceagent.WorkspaceAgentEngine.EngineStatus;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionDecision;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionDetail;
 import synvo.workspaceagent.WorkspaceAgentEngine.InteractionKind;
@@ -303,6 +304,15 @@ class WorkspaceAgentFacadeTests {
 		assertEquals("AUTHENTICATION_REQUIRED", status.state());
 		assertEquals("gpt-5.6-sol", status.model());
 		assertTrue(status.account().authenticationRequired());
+	}
+
+	@Test
+	void recoveryAndProtocolStatesRemainDistinctAtTheH5Boundary() {
+		engine.engineStatus = EngineStatus.RECOVERING;
+		assertEquals("RECOVERING", facade.status("ou-victor").state());
+
+		engine.engineStatus = EngineStatus.PROTOCOL_INCOMPATIBLE;
+		assertEquals("PROTOCOL_INCOMPATIBLE", facade.status("ou-victor").state());
 	}
 
 	@Test
@@ -769,6 +779,7 @@ class WorkspaceAgentFacadeTests {
 		private volatile boolean blockTerminalUntilStop;
 		private volatile boolean stopped;
 		private volatile boolean authenticationRequired;
+		private volatile EngineStatus engineStatus = EngineStatus.READY;
 		private volatile boolean resumeUnavailable;
 		private volatile int startedTurns;
 		private volatile String startedTaskReference;
@@ -782,7 +793,7 @@ class WorkspaceAgentFacadeTests {
 
 		@Override
 		public EngineStatus status() {
-			return EngineStatus.READY;
+			return engineStatus;
 		}
 
 		@Override

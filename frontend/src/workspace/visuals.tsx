@@ -62,3 +62,6 @@ export function CheckIcon() { return <Icon><path d="m5 12 4 4L19 6" /></Icon> }
 export function BranchIcon() { return <Icon><path d="M6 4v5a3 3 0 0 0 3 3h9M14 8l4 4-4 4M6 20v-3a5 5 0 0 1 5-5" /></Icon> }
 export function FolderIcon() { return <Icon><path d="M3 7h7l2 2h9v10H3V7Z" /></Icon> }
 export function ShieldIcon() { return <Icon><path d="M12 3 5 6v5c0 4.4 2.8 8 7 10 4.2-2 7-5.6 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></Icon> }
+
+export function CommandIcon() { return <Icon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" /></Icon> }
+export function ConnectedToolIcon() { return <Icon><path d="m10 8 3-3a4 4 0 0 1 6 6l-3 3M14 16l-3 3a4 4 0 0 1-6-6l3-3M9 15l6-6" /></Icon> }

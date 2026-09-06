@@ -11,8 +11,8 @@ employee interaction surface for the current rollout and Phase 3 closure.
 The product roadmap is deliberately staged:
 
 1. Phase 3 integrates Codex as a rich, single-user Lark client.
-2. Phase 4 adds one opinionated, bounded workplace workflow that solves a
-   specific Synvo work problem end to end.
+2. `wf-keystone-quotation` adds the first opinionated, bounded workplace
+   workflow: accurate Keystone quotation generation in Lark H5.
 
 This document is the high-level product and engineering reference. The exact
 Phase 3 scope, contracts, security decisions, gates, and acceptance tests live
@@ -94,15 +94,19 @@ never reach Codex or the runner. Codex credentials and technical state stay in
 a runner-owned persistent directory separated from task workspaces and never
 reach Spring Boot, the browser, logs, prompts, or the repository.
 
-### 5. Create a foundation for one useful workplace workflow
+### 5. Add the first useful workplace workflow
 
-Phase 4 will select and implement one Synvo-specific bounded workflow. It will
-reuse the Phase 3 task and interaction foundation without turning Agent Core
-into a generic harness or exposing App Server details to product workflows.
+`wf-keystone-quotation` is the selected first Synvo-specific bounded workflow.
+It will reuse the Phase 3 identity, H5, lifecycle, policy, persistence, and
+streaming foundation without turning Agent Core into a generic harness or
+exposing App Server details to product workflows. Keystone remains the
+quotation system of record; Synvo does not duplicate its extraction,
+catalogue resolution, pricing, revision, or PDF logic.
 
 The earlier Enterprise Knowledge Research and Meeting-to-Execution proposals
-are not active Phase 3 requirements. Phase 4 requires a separately approved
-specification and is not implemented implicitly as part of the Codex client.
+are not active Phase 3 requirements. Each `wf-keystone-quotation` workflow
+phase requires a separately approved specification and is not implemented
+implicitly as part of the Codex client.
 
 ### 6. Preserve simplicity and maintainability
 
@@ -155,11 +159,21 @@ are not Phase 3 acceptance targets. The stable Codex engine may retain those
 general capabilities internally, but exposing and validating coding workflows
 requires future explicit approval.
 
-### Phase 4 — One bounded Synvo workflow
+### `wf-keystone-quotation` — First bounded Synvo workflow
 
-Phase 4 will define one real workplace problem and an explicit end-to-end
-workflow only after Phase 3 is complete. It must preserve deterministic policy
-for authorization, data boundaries, confirmation, idempotency, and audit.
+`wf-keystone-quotation` implements Keystone quotation generation as one
+explicit end-to-end H5 workflow after Phase 3. Its three workflow phases are:
+
+1. Accuracy and Integration Foundation;
+2. Complete Quotation Workflow; and
+3. Source-Based Reasoning and Production Release.
+
+The workflow must preserve Keystone as the business authority and preserve
+deterministic policy for authorization, data boundaries, human resolution and
+confirmation, idempotency, and audit. Accuracy takes priority over automation
+coverage: ambiguous inputs stop for a human decision instead of being guessed.
+The workflow charter and phase specifications live in
+`docs/specs/wf-keystone-quotation/`.
 
 If Enterprise Knowledge Research is selected later, retrieval remains live and
 limited to one configured Lark Drive folder unless a new approved specification
@@ -327,7 +341,7 @@ flowchart TB
 2. **Keep App Server complexity inside one deep integration module.**
 3. **Use Synvo task and interaction vocabulary outside that module.**
 4. **Keep model reasoning separate from deterministic permissioned execution.**
-5. **Keep Phase 3 client mechanics separate from Phase 4 product workflow logic.**
+5. **Keep Phase 3 client mechanics separate from `wf-keystone-quotation` product workflow logic.**
 6. **Use one Spring Boot modular monolith, one React app, PostgreSQL, and one private runner.**
 7. **Use configured workspaces, explicit sandboxes, and H5 approval.**
 8. **Use PostgreSQL before adding data infrastructure.**
@@ -340,7 +354,7 @@ The current MVP does not include:
 
 - a Synvo-owned generic agent-building platform, agent loop, planner, tool
   registry, skill marketplace, workflow engine, or multi-agent orchestrator;
-- Phase 4's workplace workflow before it receives an approved specification;
+- any `wf-keystone-quotation` phase before it receives an approved specification;
 - Enterprise Knowledge Research, configured Lark Drive retrieval, citations,
   or Meeting-to-Execution in Phase 3;
 - Lark business-resource reads or writes in Phase 3;
@@ -379,7 +393,7 @@ The foundation is successful when:
   logs, persistence, prompts, output, or browser storage;
 - most App Server changes affect only the deep integration module and its
   contract tests; and
-- Phase 4 can add one bounded workplace workflow without replacing the
+- `wf-keystone-quotation` can add one bounded workplace workflow without replacing the
   conversation, task, security, or integration foundations.
 
 ## Transition from Phase 2.5
