@@ -10,7 +10,8 @@ public record ConversationRequest(
 		String content,
 		UUID replaceFailedAssistantTurnId,
 		String reasoningEffort,
-		String skillName
+		String skillName,
+		TransientWorkspaceInput workspaceInput
 ) {
 
 	private static final int MAX_REQUEST_ID_LENGTH = 128;
@@ -38,6 +39,12 @@ public record ConversationRequest(
 		content = content.strip();
 		reasoningEffort = normalizeOptional(reasoningEffort);
 		skillName = normalizeOptional(skillName);
+		if (workspaceInput != null) {
+			if (conversationId == null || skillName != null || replaceFailedAssistantTurnId != null) {
+				throw new IllegalArgumentException("Workflow input requires its existing task");
+			}
+			content = "Run the authorized workflow analysis.";
+		}
 	}
 
 	public ConversationRequest(
@@ -61,4 +68,12 @@ public record ConversationRequest(
 	private static String normalizeOptional(String value) {
 		return StringUtils.hasText(value) ? value.strip() : null;
 	}
+
+	public ConversationRequest(String requestId, UUID conversationId, String userOpenId,
+			String content, UUID replaceFailedAssistantTurnId, String reasoningEffort, String skillName) {
+		this(requestId, conversationId, userOpenId, content, replaceFailedAssistantTurnId,
+				reasoningEffort, skillName, null);
+	}
+
+	@Override public String toString() { return "ConversationRequest[protected content]"; }
 }

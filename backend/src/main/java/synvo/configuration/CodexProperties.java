@@ -131,12 +131,21 @@ public record CodexProperties(
 			String runnerRoot,
 			boolean nativeChatDefault,
 			boolean writeEnabled,
-			String repositoryLabel
+			String repositoryLabel,
+			boolean workflowManaged
 	) {
+		@org.springframework.boot.context.properties.bind.ConstructorBinding
+		public Workspace { }
+
+		public Workspace(String id, String displayName, String runnerRoot,
+				boolean nativeChatDefault, boolean writeEnabled, String repositoryLabel) {
+			this(id, displayName, runnerRoot, nativeChatDefault, writeEnabled, repositoryLabel, false);
+		}
 		boolean isValid() {
 			if (!StringUtils.hasText(id) || id.length() > 100
 					|| !StringUtils.hasText(displayName) || displayName.length() > 160
-					|| !StringUtils.hasText(runnerRoot) || runnerRoot.length() > 4096) {
+					|| !StringUtils.hasText(runnerRoot) || runnerRoot.length() > 4096
+					|| (workflowManaged && nativeChatDefault)) {
 				return false;
 			}
 			try {

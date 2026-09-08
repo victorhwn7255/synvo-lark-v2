@@ -19,6 +19,14 @@ import { startAppearance } from '../appearance'
 import { useCodexWorkspace } from './useCodexWorkspace'
 
 describe('CodexWorkspace', () => {
+  it('insets the reload status below the header without stretching its card', async () => {
+    const codex = codexFlow(), conversation = conversationFlow()
+    renderWorkspace(codex.api, conversation.api)
+    const loading = screen.getByText('Preparing Synvo AI Assistant…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading.parentElement).toHaveClass('codex-startup-state')
+    await waitFor(() => expect(screen.queryByText('Preparing Synvo AI Assistant…')).not.toBeInTheDocument())
+  })
   afterEach(() => {
     cleanup()
     window.history.replaceState(null, '', '/')

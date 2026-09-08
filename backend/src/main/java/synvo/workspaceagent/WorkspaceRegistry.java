@@ -36,6 +36,7 @@ public final class WorkspaceRegistry {
 
 	public List<WorkspaceSummary> summaries() {
 		return definitions.values().stream()
+				.filter(definition -> !definition.workflowManaged())
 				.map(definition -> new WorkspaceSummary(
 						definition.id(),
 						definition.displayName(),
@@ -82,12 +83,18 @@ public final class WorkspaceRegistry {
 			Path canonicalRoot,
 			boolean nativeChatDefault,
 			boolean writeEnabled,
-			String repositoryLabel
+			String repositoryLabel,
+			boolean workflowManaged
 	) {
+		public WorkspaceDefinition(String id, String displayName, Path canonicalRoot,
+				boolean nativeChatDefault, boolean writeEnabled, String repositoryLabel) {
+			this(id, displayName, canonicalRoot, nativeChatDefault, writeEnabled, repositoryLabel, false);
+		}
 		public WorkspaceDefinition {
 			if (id == null || id.isBlank() || displayName == null || displayName.isBlank()
 					|| canonicalRoot == null || !canonicalRoot.isAbsolute()
-					|| !canonicalRoot.normalize().equals(canonicalRoot)) {
+					|| !canonicalRoot.normalize().equals(canonicalRoot)
+					|| (workflowManaged && nativeChatDefault)) {
 				throw new IllegalArgumentException("Workspace definition is invalid");
 			}
 		}

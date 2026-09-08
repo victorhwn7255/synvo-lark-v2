@@ -1940,3 +1940,9 @@
 
 .codex-tool-chip summary > span:first-child, .codex-decision-receipt > span { display: flex; flex: 0 0 auto; }
 .codex-tool-chip svg, .codex-decision-receipt svg, .codex-live-activity__marker svg { width: 1rem; height: 1rem; }
+.codex-startup-state {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.5rem;
+}

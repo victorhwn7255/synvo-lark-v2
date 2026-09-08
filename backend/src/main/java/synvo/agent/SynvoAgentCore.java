@@ -101,6 +101,10 @@ public final class SynvoAgentCore {
 			Consumer<AgentLifecycleEvent> listener) {
 		Objects.requireNonNull(request, "request");
 		Objects.requireNonNull(listener, "listener");
+		if (workspaceAgent != null) {
+			workspaceAgent.verifyConversationAccess(request.userOpenId(), request.conversationId(),
+					request.workspaceInput() != null);
+		}
 		ConversationResult replay = conversationStore.findTerminalResult(request.requestId()).orElse(null);
 		if (replay != null) {
 			for (AgentLifecycleEvent event : replay.events()) {
@@ -148,6 +152,9 @@ public final class SynvoAgentCore {
 			return generateWorkspaceAnswer(prepared, listener, cancellation);
 		}
 
+		if (prepared.request().workspaceInput() != null) {
+			return fail(prepared, listener, "CODEX_UNAVAILABLE", SAFE_FAILURE_RESPONSE);
+		}
 		return switch (prepared.run().intent()) {
 			case CLARIFICATION -> streamDeterministic(
 					prepared, listener, cancellation, Outcome.CLARIFICATION, CLARIFICATION_RESPONSE);
@@ -166,7 +173,8 @@ public final class SynvoAgentCore {
 			Consumer<AgentLifecycleEvent> listener,
 			ModelCancellation cancellation) {
 		emit(prepared, listener, AgentLifecycleEvent.State.THINKING, "Preparing a Codex task");
-		List<ConversationContextMessage> context = conversationStore.loadContext(
+		boolean protectedInput = prepared.request().workspaceInput() != null;
+		List<ConversationContextMessage> context = protectedInput ? List.of() : conversationStore.loadContext(
 				prepared.run().conversationId(), CONTEXT_MAX_MESSAGES, CONTEXT_MAX_CHARACTERS);
 		AtomicBoolean streamingStarted = new AtomicBoolean();
 		try {
@@ -176,10 +184,10 @@ public final class SynvoAgentCore {
 							prepared.run().conversationId(),
 							prepared.run().runId(),
 							prepared.requestId(),
-							prepared.request().content(),
+							protectedInput ? prepared.request().workspaceInput().text() : prepared.request().content(),
 							toVisibleMessages(context),
 							prepared.request().reasoningEffort(),
-							prepared.request().skillName()),
+							prepared.request().skillName(), protectedInput),
 					new ConversationObserver() {
 						@Override
 						public void onActivity(ActivityView activity) {
@@ -188,6 +196,7 @@ public final class SynvoAgentCore {
 
 						@Override
 						public void onMessageDelta(String delta) {
+							if (protectedInput) return;
 							if (streamingStarted.compareAndSet(false, true)) {
 								emit(prepared, listener, AgentLifecycleEvent.State.STREAMING,
 										"Writing a Codex result");
@@ -197,6 +206,7 @@ public final class SynvoAgentCore {
 
 						@Override
 						public void onMessageReset() {
+							if (protectedInput) return;
 							streamingStarted.set(false);
 							resetAssistantContent(prepared, listener);
 						}
@@ -384,7 +394,9 @@ public final class SynvoAgentCore {
 			String response) {
 		AgentLifecycleEvent terminalEvent = prepared.nextEvent(
 				AgentLifecycleEvent.State.COMPLETED, null);
-		conversationStore.complete(prepared.run(), outcome, response, terminalEvent);
+		conversationStore.complete(prepared.run(), outcome,
+				prepared.request().workspaceInput() == null ? response : "Workflow analysis finished. Open its workflow window for the validated result.",
+				terminalEvent);
 		prepared.add(terminalEvent);
 		listener.accept(terminalEvent);
 		return result(prepared, outcome, Status.COMPLETED, response);

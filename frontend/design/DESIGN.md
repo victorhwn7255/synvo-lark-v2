@@ -689,6 +689,11 @@ error with a retry button), `.codex-live-activity__empty` (waiting for the
 first event). Every list has an explicit empty sentence
 (`.workspace-sidebar__empty`, `.codex-panel-empty`).
 
+The reload-time “Preparing Synvo AI Assistant…” card sits inside
+`.codex-startup-state` with 1.5rem padding, leaving space below the topbar and
+beside the content edges. Its card keeps its natural content height instead of
+stretching to fill the workspace grid. Other history/loading cards are unchanged.
+
 ### 6.13 Disclosure
 
 Native `details`/`summary` with a rotating inline chevron
@@ -1364,3 +1369,122 @@ The [appearance Completion Audit](../../docs/specs/frontend-light-dark-appearanc
 records automated checks, rendered checks, actual desktop evidence and the
 remaining mobile/host matrix. Neither this guide's approval nor desktop browser
 emulation completes an actual phone check or waives existing release gates.
+
+## 15. Billing Insights workflow
+
+The simplified Phase 1 experience/design was accepted by the user on 2026-09-07.
+Phase 1 is Complete. The user explicitly deferred native high-contrast and
+reduced-motion checks to mandatory Phase 3 pre-release gates; neither is waived
+for production or claimed to have passed.
+The [Billing Insights specification](../../docs/specs/wf-billing-insights/phase-1-experience-and-design.md)
+and [experience design](../../docs/specs/wf-billing-insights/experience-design.md)
+govern its original isolated synthetic prototype. The approved
+[Phase 3 specification](../../docs/specs/wf-billing-insights/phase-3-h5-reports-and-investigation.md)
+now governs the implemented local Billing window and report/questions flow.
+Its Completion Audit records the remaining native-client and live-data gates;
+implementation and synthetic previews are not production acceptance. This does
+not reorder the Keystone roadmap.
+
+Billing uses the same shell, icons, semantic palette and appearance source.
+The approved [daily spending enhancement](../../docs/specs/wf-billing-insights/phase-3-daily-spending-grid.md)
+places the daily calendar directly below the main title (no subtitle), then a
+compact Saved analyses toolbar before the report,
+with contextual questions underneath. Only “+ New Analysis” opens the period
+selector (1/3/6 completed months or a custom contiguous range), consent and
+Generate form, including on an empty first visit. Remove the old Billing period
+pill and persistent “Analysis complete” banner; announce “Report ready” accessibly.
+Never suppress failure or factual-only notices with the success copy.
+Keep the last saved calendar interactive during New Analysis setup and generation.
+Back restores the prior saved report/question draft, or the first-use landing view,
+without generating or cancelling work. Draft ranges never retarget saved evidence.
+Show scope/currency/basis/freshness, total/change, monthly trend when relevant,
+service breakdown and evidence-qualified optimization next steps. Source/version
+details and invoice reconciliation use a disclosure. Missing evidence is not
+zero cost or validated savings. A draft period does not retarget the active report.
+
+The UI change metric uses magnitude plus direction: “USD 216.82 less” /
+“44.42% lower” in `--positive` for cost decreases; “more” / “higher” in
+`--warning` for increases. Direction comes from the saved exact delta, not
+rounded totals. Zero change and unavailable comparisons remain neutral; never
+invent a percentage for zero/negative comparison cost. Preserve sub-cent
+qualifiers and use “< 0.01%” when a nonzero change rounds to zero percent.
+Green signifies lower cost, not verified recurring savings. This card wording
+does not alter saved facts, evidence, narratives or PDF presentation.
+
+“What your team should know” uses small blue disc markers (`--accent-strong`)
+for each takeaway. Keep native `ul`/`li` semantics, normal paragraph text color
+and outside markers so wrapped lines align with the text, not the bullet.
+Restore list styling explicitly because the global CSS reset removes markers.
+
+Follow-up questions place progress, Stop and agent activity after the submitted
+question and before the composer, not above the report. Render the accepted
+question while saved history catches up; deduplicate by work ID. Report-generation
+activity remains above the report. Terminal question status stays in its own card.
+
+Use existing navigation, focus and notice patterns; billing-specific CSS uses
+`billing-*` names. Use the same single reading flow at narrow widths, with
+the shared mobile navigation drawer. Design-only appearance/scenario controls must
+never enter production. No new global tokens, palette or component framework
+is introduced. The [design review](../../docs/specs/wf-billing-insights/design-review.md)
+records verification scope and outstanding acceptance gates.
+
+### Saved analyses and daily calendar
+
+- Use the billing-local `BillingSelect` for both Year and Saved analyses: a
+  select-only combobox with a themed, rounded listbox portaled above clipping
+  containers. Keep one blue inset focus edge, selected checkmarks, muted chevrons
+  and document icons before saved-report labels. Use shared surface/ink/accent
+  tokens in both themes. Enabled saved-report rows gain an 18% accent/surface
+  background mix on pointer hover, clearing on exit without changing selection;
+  forced colors uses Highlight/HighlightText. Year stays 76×32px on desktop (44px touch target).
+  Preserve Arrow/Home/End/typeahead navigation, Enter/Space selection and
+  Escape/Tab/outside dismissal; navigation alone never changes the selected data.
+  Constrain popup width/height to the viewport and scroll longer histories.
+  Keep period-first labels with separate muted generation metadata
+  and adjacent blue New Analysis action. Distinguish repeated period/time labels
+  with IDs only when necessary; preserve pagination and factual-only states.
+  Inset noninteractive chevrons from the edge, with reserved flex space so long
+  labels cannot overlap them. No new UI dependency or global select replacement.
+- Render a UTC January–December year with 365/366 dates, weekly columns and
+  seven weekday rows. Source coverage is snapshot-bound, not an implied full
+  year of finalized costs. Year switching never fetches Azure or invokes a model.
+- Java owns exact daily costs, source-role reconciliation, service grouping and
+  up to five distribution-based numeric bands (nearest-rank quintiles, readable
+  upward thresholds, merge ties). Label relative spending, retain dollar ranges
+  and never split equal costs. Use shared accent/surface tokens for increasing
+  blue intensity in both themes. Missing data is hatched, recorded zero marked 0,
+  negatives signed, future dates marked with a dot; future source records remain explicit.
+- User-approved borderless refinement (2026-09-08): no calendar frame, cell border
+  or persistent selected/period outline in ordinary themes. Use a compact uppercase
+  heading/year and a blue Less/More ramp, retaining exact numeric legends below.
+  Pointer hover adds a slight light overlay only while over a cell. Hover preview
+  is independent of click/tap selection and clears on pointer exit. Keep keyboard
+  `:focus-visible` outlines; forced-colors may restore system borders for visibility.
+- Keep selected-period attribution in date labels and preserve the report's
+  source caveats. The user removed the calendar's coverage/range/provenance
+  paragraphs and daily source/table disclosure. Do not equate source-date annual
+  totals with billing-received-period report headlines or call them finalized.
+- Hover, focus and tap share a persistent date-detail panel. Roving keyboard
+  focus avoids hundreds of Tab stops. Compact annual cells are about 10–12px;
+  the user explicitly removed the table and date selector, so do not claim the
+  prior equivalent-control target-size exception. Actual phone/minimum-target
+  acceptance remains open. Keep its plain bold date and cost/status
+  on one row at normal widths, wrapping only as needed on narrow screens.
+- At narrow widths stack toolbar controls and contain horizontal scrolling
+  inside the calendar. Other content reflows at 320px/200% text. Provide system
+  colors/patterns in forced-colors mode and no calendar animation. Actual native
+  forced-colors/reduced-motion and phone Lark acceptance remain release gates.
+- Bind loading, details and errors to report/year identity; clear stale responses
+  and revoked/expired data. Calendar-local errors must not hide an otherwise
+  authorized report, PDF or questions. Never generate a new analysis for a retry
+  of this read-only view.
+- During a year change, retain the heading/year controls and replace old-year
+  amounts with a noninteractive 365/366-cell skeleton laid out for the requested
+  UTC year. Preserve the previous calendar body's height while loading so the
+  saved-report toolbar does not jump upward. Use neutral theme-based placeholders,
+  a subtle pulse (static for reduced motion), `aria-busy` and one loading status;
+  skeleton cells are hidden from assistive technology and never imply zero cost.
+  Background refresh keeps the already loaded matching-year grid interactive.
+
+The enhancement's Completion Audit records passing automated/local checks and
+remaining native/live checks. No new Azure/model job or PDF change was needed.

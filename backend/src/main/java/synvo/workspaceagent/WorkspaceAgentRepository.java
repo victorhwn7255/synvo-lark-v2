@@ -13,6 +13,9 @@ import synvo.workspaceagent.WorkspaceAgentEngine.TerminalStatus;
 /** Persistence port for Synvo-owned task, activity, and interaction state. */
 public interface WorkspaceAgentRepository {
 
+	TaskRecord createWorkflowTask(String ownerOpenId, String workspaceId, RunMode mode,
+			String title, String taskReference);
+
 	TaskRecord createTask(
 			String ownerOpenId,
 			String workspaceId,
@@ -119,8 +122,15 @@ public interface WorkspaceAgentRepository {
 			boolean pinned,
 			boolean archived,
 			Instant createdAt,
-			Instant updatedAt
+			Instant updatedAt,
+			boolean workflowManaged
 	) {
+		public TaskRecord(UUID taskId, UUID conversationId, String ownerOpenId, String workspaceId,
+				RunMode mode, String title, String taskReference, boolean pinned, boolean archived,
+				Instant createdAt, Instant updatedAt) {
+			this(taskId, conversationId, ownerOpenId, workspaceId, mode, title, taskReference,
+					pinned, archived, createdAt, updatedAt, false);
+		}
 	}
 
 	record OperationRecord(

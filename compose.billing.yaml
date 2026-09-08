@@ -1,0 +1,24 @@
+# Opt-in only, after the billing storage/access preflight. No Azure files enter an image.
+services:
+  backend:
+    environment:
+      SYNVO_BILLING_ENABLED: "true"
+      SYNVO_AZURE_TENANT_ID: ${SYNVO_AZURE_TENANT_ID:?Set the billing tenant ID privately}
+      SYNVO_AZURE_CLIENT_ID: ${SYNVO_AZURE_CLIENT_ID:?Set the billing application ID privately}
+      SYNVO_AZURE_BILLING_ACCOUNT_ID: ${SYNVO_AZURE_BILLING_ACCOUNT_ID:?Set the exact MCA account ID privately}
+      SYNVO_AZURE_BILLING_PROFILE_ID: ${SYNVO_AZURE_BILLING_PROFILE_ID:?Set the exact approved profile ID privately}
+      SYNVO_AZURE_PRIVATE_KEY_PATH: /run/secrets/synvo-azure/private-key.pem
+      SYNVO_AZURE_PUBLIC_CERT_PATH: /run/secrets/synvo-azure/public-cert.pem
+    volumes:
+      - type: bind
+        source: ${SYNVO_AZURE_PRIVATE_KEY_PATH:?Set the private key file path, not its contents}
+        target: /run/secrets/synvo-azure/private-key.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SYNVO_AZURE_PUBLIC_CERT_PATH:?Set the public certificate file path}
+        target: /run/secrets/synvo-azure/public-cert.pem
+        read_only: true
+        bind:
+          create_host_path: false

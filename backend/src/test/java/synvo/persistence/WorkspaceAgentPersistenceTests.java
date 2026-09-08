@@ -56,6 +56,23 @@ class WorkspaceAgentPersistenceTests {
 	@Autowired
 	private DataSource dataSource;
 
+	@Autowired
+	private synvo.agent.ConversationQueries conversationQueries;
+
+	@Test
+	void managedMarkerSurvivesReloadAndGenericConversationRoutesCannotReadOrDeleteIt() {
+		String owner = "ou-workflow-marker";
+		var task = repository.createWorkflowTask(owner, "billing", RunMode.WORKSPACE_WRITE,
+				"Billing analysis", "workflow-marker-ref");
+		assertTrue(task.workflowManaged());
+		assertTrue(repository.findOwnedTask(owner, task.taskId()).orElseThrow().workflowManaged());
+		assertTrue(conversationQueries.listRecent(owner).isEmpty());
+		assertTrue(conversationQueries.findConversation(owner, task.conversationId()).isEmpty());
+		conversationQueries.deleteOwnedConversation(owner, task.conversationId());
+		assertTrue(repository.findOwnedTask(owner, task.taskId()).isPresent());
+		assertTrue(repository.deleteOwnedTask(owner, task.taskId()));
+	}
+
 	@Test
 	void workspaceAgentSchemaContainsOnlyBoundedSynvoOwnedState() {
 		for (String table : List.of(
@@ -242,12 +259,11 @@ class WorkspaceAgentPersistenceTests {
 		v4.migrate();
 		UUID conversationId = UUID.randomUUID();
 		try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-			statement.execute("SET search_path TO " + schema);
 			statement.execute("""
-					INSERT INTO conversation (
+					INSERT INTO %s.conversation (
 					    conversation_id, owner_open_id, title, created_at, updated_at
 					) VALUES ('%s', 'ou-upgrade', 'Preserved', NOW(), NOW())
-					""".formatted(conversationId));
+					""".formatted(schema, conversationId));
 		}
 		Flyway latest = Flyway.configure()
 				.dataSource(dataSource)
@@ -257,16 +273,15 @@ class WorkspaceAgentPersistenceTests {
 				.load();
 		latest.migrate();
 		try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-			statement.execute("SET search_path TO " + schema);
 			try (var result = statement.executeQuery(
-					"SELECT title FROM conversation WHERE conversation_id = '" + conversationId + "'")) {
+					"SELECT title FROM " + schema + ".conversation WHERE conversation_id = '" + conversationId + "'")) {
 				assertTrue(result.next());
 				assertEquals("Preserved", result.getString(1));
 			}
 			try (var result = statement.executeQuery(
-					"SELECT to_regclass('workspace_agent_task')::text")) {
+					"SELECT to_regclass('" + schema + ".workspace_agent_task')::text")) {
 				assertTrue(result.next());
-				assertEquals("workspace_agent_task", result.getString(1));
+				assertEquals(schema + ".workspace_agent_task", result.getString(1));
 			}
 		}
 	}

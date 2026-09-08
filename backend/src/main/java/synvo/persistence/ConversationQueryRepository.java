@@ -34,6 +34,8 @@ class ConversationQueryRepository implements ConversationQueries {
 				SELECT conversation_id, title, updated_at
 				FROM conversation
 				WHERE owner_open_id = :ownerOpenId
+				  AND NOT EXISTS (SELECT 1 FROM workspace_agent_task w
+				      WHERE w.conversation_id = conversation.conversation_id AND w.workflow_managed)
 				ORDER BY updated_at DESC
 				LIMIT :limit
 				""")
@@ -53,6 +55,8 @@ class ConversationQueryRepository implements ConversationQueries {
 				FROM conversation
 				WHERE conversation_id = :conversationId
 				  AND owner_open_id = :ownerOpenId
+				  AND NOT EXISTS (SELECT 1 FROM workspace_agent_task w
+				      WHERE w.conversation_id = conversation.conversation_id AND w.workflow_managed)
 				""")
 				.param(CONVERSATION_ID_PARAMETER, conversationId)
 				.param(OWNER_OPEN_ID_PARAMETER, ownerOpenId)
@@ -106,6 +110,8 @@ class ConversationQueryRepository implements ConversationQueries {
 				JOIN conversation c ON c.conversation_id = r.conversation_id
 				WHERE r.run_id = :runId
 				  AND c.owner_open_id = :ownerOpenId
+				  AND NOT EXISTS (SELECT 1 FROM workspace_agent_task w
+				      WHERE w.conversation_id = c.conversation_id AND w.workflow_managed)
 				""")
 				.param("runId", runId)
 				.param(OWNER_OPEN_ID_PARAMETER, ownerOpenId)
@@ -128,6 +134,8 @@ class ConversationQueryRepository implements ConversationQueries {
 				    FROM conversation c
 				    WHERE c.conversation_id = :conversationId
 				      AND c.owner_open_id = :ownerOpenId
+				      AND NOT EXISTS (SELECT 1 FROM workspace_agent_task w
+				          WHERE w.conversation_id = c.conversation_id AND w.workflow_managed)
 				    FOR UPDATE
 				), deleted AS (
 				    DELETE FROM conversation c

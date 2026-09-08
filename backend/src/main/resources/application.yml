@@ -37,11 +37,25 @@ management:
 
 logging:
   level:
+    com.azure: OFF
+    com.microsoft.aad.msal4j: OFF
     com.lark.oapi.service.authen.v1.resource: OFF
     com.lark.oapi.ws.Client: WARN
     com.lark.oapi.ws.Listener: WARN
 
 synvo:
+  billing:
+    workflow:
+      enabled: ${SYNVO_BILLING_WORKFLOW_ENABLED:false}
+      workspace-id: ${SYNVO_BILLING_WORKFLOW_WORKSPACE_ID:billing}
+      package-root: ${SYNVO_BILLING_WORKFLOW_PACKAGE_ROOT:/workspaces/billing}
+    enabled: ${SYNVO_BILLING_ENABLED:false}
+    tenant-id: ${SYNVO_AZURE_TENANT_ID:}
+    client-id: ${SYNVO_AZURE_CLIENT_ID:}
+    account-id: ${SYNVO_AZURE_BILLING_ACCOUNT_ID:}
+    profile-id: ${SYNVO_AZURE_BILLING_PROFILE_ID:}
+    private-key-path: ${SYNVO_AZURE_PRIVATE_KEY_PATH:}
+    public-cert-path: ${SYNVO_AZURE_PUBLIC_CERT_PATH:}
   agent:
     response-timeout: ${SYNVO_AGENT_RESPONSE_TIMEOUT:30m}
   codex:

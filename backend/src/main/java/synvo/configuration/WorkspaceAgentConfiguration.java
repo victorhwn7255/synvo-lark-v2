@@ -32,7 +32,7 @@ class WorkspaceAgentConfiguration {
 						Path.of(workspace.runnerRoot()).toAbsolutePath().normalize(),
 						workspace.nativeChatDefault(),
 						workspace.writeEnabled(),
-						workspace.repositoryLabel()))
+						workspace.repositoryLabel(), workspace.workflowManaged()))
 				.toList();
 		return new WorkspaceRegistry(definitions);
 	}

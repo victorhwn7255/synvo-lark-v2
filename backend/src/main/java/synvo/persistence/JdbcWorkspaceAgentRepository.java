@@ -34,6 +34,16 @@ public class JdbcWorkspaceAgentRepository implements WorkspaceAgentRepository {
 
 	@Override
 	@Transactional
+	public TaskRecord createWorkflowTask(String ownerOpenId, String workspaceId, RunMode mode,
+			String title, String taskReference) {
+		TaskRecord task = createTask(ownerOpenId, workspaceId, mode, title, taskReference);
+		jdbcClient.sql("UPDATE workspace_agent_task SET workflow_managed = TRUE WHERE task_id = :taskId")
+				.param(TASK_ID, task.taskId()).update();
+		return requireOwnedTask(ownerOpenId, task.taskId());
+	}
+
+	@Override
+	@Transactional
 	public TaskRecord createTask(
 			String ownerOpenId,
 			String workspaceId,
@@ -781,7 +791,7 @@ public class JdbcWorkspaceAgentRepository implements WorkspaceAgentRepository {
 		return """
 				SELECT t.task_id, t.conversation_id, t.owner_open_id, t.workspace_id,
 				       t.run_mode, t.title, t.task_reference, t.pinned, t.archived,
-				       t.created_at, t.updated_at
+				       t.created_at, t.updated_at, t.workflow_managed
 				FROM workspace_agent_task t
 				""";
 	}
@@ -820,7 +830,7 @@ public class JdbcWorkspaceAgentRepository implements WorkspaceAgentRepository {
 				resultSet.getBoolean("pinned"),
 				resultSet.getBoolean("archived"),
 				instant(resultSet, "created_at"),
-				instant(resultSet, "updated_at"));
+				instant(resultSet, "updated_at"), resultSet.getBoolean("workflow_managed"));
 	}
 
 	private static OperationRecord mapOperation(ResultSet resultSet, int rowNumber)

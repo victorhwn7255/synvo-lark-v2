@@ -388,7 +388,7 @@ function parseJson(value: string): unknown {
   }
 }
 
-function parseActivity(value: unknown): CodexActivity | null {
+export function parseActivity(value: unknown): CodexActivity | null {
   if (!(
     isRecord(value) && Number.isInteger(value.sequence) && hasText(value.type) &&
     hasText(value.label) && (typeof value.text === 'string' || value.text === null) &&
@@ -463,7 +463,7 @@ function isOperation(value: unknown): value is CodexOperation {
     hasText(value.createdAt) && hasText(value.updatedAt)
 }
 
-function isInteraction(value: unknown): value is CodexInteraction {
+export function isInteraction(value: unknown): value is CodexInteraction {
   return isRecord(value) && hasText(value.interactionId) && hasText(value.taskId) &&
     hasText(value.operationId) && hasText(value.workspaceId) && hasText(value.workspaceName) &&
     ['COMMAND_APPROVAL', 'FILE_CHANGE_APPROVAL', 'MCP_TOOL_APPROVAL', 'MCP_ELICITATION'].includes(value.kind as string) &&
