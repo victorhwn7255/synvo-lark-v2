@@ -47,9 +47,11 @@
 .billing-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .billing-calendar { --billing-blue-1: color-mix(in srgb, var(--accent) 20%, var(--surface)); --billing-blue-2: color-mix(in srgb, var(--accent) 40%, var(--surface)); --billing-blue-3: color-mix(in srgb, var(--accent) 60%, var(--surface)); --billing-blue-4: color-mix(in srgb, var(--accent) 80%, var(--surface)); --billing-blue-5: var(--accent); padding-block: 1rem; }
 .billing-calendar-heading { display: flex; justify-content: space-between; gap: .75rem; align-items: center; flex-wrap: wrap; }
-.billing-calendar-title, .billing-calendar-ramp { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; color: var(--ink-soft); font-size: .75rem; }
-.billing-calendar-title { gap: .75rem; }
-.billing-calendar h3 { font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+.billing-calendar-title, .billing-calendar-controls { display: flex; align-items: center; gap: .65rem; color: var(--ink-soft); font-size: .75rem; }
+.billing-calendar-title { min-width: 0; }
+.billing-calendar-title > svg { flex-shrink: 0; color: var(--accent); }
+.billing-calendar h3 { font-size: 1rem; line-height: 1.4; font-weight: 650; letter-spacing: -.01em; color: var(--ink); margin: 0; }
+.billing-calendar-controls { flex-wrap: wrap; margin-left: auto; }
 .billing-calendar-year { display: inline-flex; align-items: center; gap: .4rem; font-size: .6875rem; }
 .billing-calendar-scroll { max-width: 100%; overflow-x: auto; padding-block: .5rem; }
 .billing-calendar-grid { display: grid; grid-template-rows: 1.5rem repeat(7, .75rem); gap: 3px; width: 100%; min-width: 40rem; }
@@ -79,7 +81,13 @@
   .billing-day:hover::after { background: rgb(255 255 255 / 18%); }
 }
 .billing-calendar-legend { display: flex; gap: .4rem .75rem; flex-wrap: wrap; font-size: .6875rem; color: var(--ink-soft); margin-block: .75rem; }
-.billing-calendar-ramp { font-size: .6875rem; }
+.billing-legend-disclosure { color: var(--ink-soft); font-size: .75rem; margin-top: .4rem; }
+.billing-reading-column .billing-legend-disclosure > summary { width: fit-content; font-size: .75rem; color: var(--ink-soft); }
+.billing-legend-disclosure > summary::marker { color: var(--ink-soft); }
+.billing-legend-disclosure > summary::-webkit-details-marker { color: var(--ink-soft); }
+.billing-legend-disclosure > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 2px; }
+.billing-legend-context { font-size: .75rem; }
+.billing-reading-column .billing-legend-context p { margin-block: .35rem; }
 .billing-calendar-legend > span { display: inline-flex; align-items: center; gap: .35rem; }
 .billing-swatch { display: inline-block; flex-shrink: 0; width: .75rem; height: .75rem; background: var(--billing-cell-fill, var(--surface-muted)); border-radius: 2px; font-style: normal; text-align: center; line-height: 1; }
 .billing-day-detail { background: var(--surface); border: 1px solid var(--border); border-radius: .65rem; padding: .75rem .75rem .5rem; margin-block: 1rem; }

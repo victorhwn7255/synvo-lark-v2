@@ -101,7 +101,9 @@ export function BillingCalendar({ visible = true, api = billingApi, onAccessErro
   const offset = data ? new Date(data.days[0].date).getUTCDay() : 0
   const choose = (day: BillingDay) => { setSelected(day.date) }
   return <section className="billing-calendar" aria-label="Daily Azure Spending">
-    <div className="billing-calendar-heading"><div className="billing-calendar-title"><h3>Daily Azure Spending</h3>
+    <div className="billing-calendar-heading"><div className="billing-calendar-title">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M7 3v4m10-4v4M3 11h18m-13 4v2m4-3v3m4-1v1" strokeLinecap="round" /></svg>
+      <h3>Daily Azure Spending</h3></div><div className="billing-calendar-controls">
       {feed && feed.calendar.years.length > 1 && <div className="billing-calendar-year"><span>Year</span><BillingSelect label="Spending year" compact value={String(year ?? feed.calendar.year)} disabled={!visible}
         options={feed.calendar.years.map(y => ({ value: String(y), label: String(y) }))}
         onChange={value => { if (Number(value) === (year ?? feed.calendar.year)) return; setLoadingHeight(body.current?.getBoundingClientRect().height); setError(null); setSelected(''); setHovered(''); setYear(Number(value)) }} /></div>}
@@ -110,17 +112,10 @@ export function BillingCalendar({ visible = true, api = billingApi, onAccessErro
         <svg className={refreshing ? 'billing-refresh-spinning' : undefined} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M19 11a7 7 0 0 0-12-5L4 9m1 4a7 7 0 0 0 12 5l3-3" /></svg>
       </button>
       </div>
-      {feed && feed.calendar.bands.length > 0 && <div className="billing-calendar-ramp" aria-hidden="true"><span>Less</span>{feed.calendar.bands.map(band => <i key={band.level} className={`billing-swatch billing-day--level-${band.level}`} />)}<span>More</span></div>}
     </div>
     <div className="billing-daily-freshness" role="status">
       {refreshing ? <span>Refreshing daily spending… {feed?.refresh && `${feed.refresh.completed} of ${feed.refresh.total} months saved`}</span>
-        : feed?.retrievedLast ? <span>Last refreshed {new Date(feed.retrievedLast).toLocaleString('en-SG')}</span> : <span>Refresh to load daily spending from Azure.</span>}
-      {feed?.observedThrough && <span title="Latest observed charge date, not a guarantee that all charges through this date have arrived.">Data through {fullDate(feed.observedThrough)}</span>}
-      {feed?.provisional && <span title="Current-month Azure charges can arrive late or be revised; these are fetched records, not finalized invoice amounts.">Provisional</span>}
-      {!!feed?.missingMonths.length && <span title={feed.missingMonths.join(', ')}>{feed.missingMonths.length} {feed.missingMonths.length === 1 ? 'month' : 'months'} awaiting data</span>}
-      {!!feed?.staleMonths.length && !refreshing && <span>Refresh available for recent or older data</span>}
-      {feed?.refresh && ['FAILED', 'PARTIAL', 'INTERRUPTED'].includes(feed.refresh.state) && <span>Refresh incomplete. Saved data is unchanged for unfinished months; refresh to resume.</span>}
-      {feed?.refresh?.failure === 'UNSUPPORTED_PRECISION' && <span>Some Azure amounts exceed the supported precision. Those months remain unavailable; no amounts were rounded.</span>}
+        : feed?.retrievedLast ? <span>Last refreshed <time dateTime={feed.retrievedLast}>{new Intl.DateTimeFormat('en-SG', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(feed.retrievedLast))}</time></span> : <span>Refresh to load daily spending from Azure.</span>}
     </div>
     {loading && <span className="billing-sr-only" role="status">Loading recorded daily costs{year ? ` for ${year}` : ''}…</span>}
     {error && <div role="alert"><p>{error}</p><button onClick={() => { setError(null); setReload(n => n + 1) }}>Retry daily costs</button></div>}
@@ -146,12 +141,22 @@ export function BillingCalendar({ visible = true, api = billingApi, onAccessErro
             }}>{day.state === 'NEGATIVE' ? '−' : day.state === 'FUTURE_RECORDED' ? '!' : day.state === 'ZERO' ? '0' : ''}</button>)}
         </div>
       </div>
+      <details className="billing-legend-disclosure"><summary>Legend</summary>
       <div className="billing-calendar-legend" aria-label="Daily cost color scale">
         <span>Relative spending</span>
         {data.bands.map(band => <span key={band.level}><i className={`billing-swatch billing-day--level-${band.level}`} />{band.label}</span>)}
         {!data.bands.length && <span>No positive daily costs in the saved feed</span>}
         <span><i className="billing-swatch billing-day--zero">0</i>Recorded net zero</span><span><i className="billing-swatch billing-day--missing" />No data</span>
       </div>
+      <div className="billing-legend-context">
+        <p>Shades show relative recorded spending. Missing records are not zero spending.</p>
+        {feed?.observedThrough && <p>Latest recorded charge: {fullDate(feed.observedThrough)}. Later or revised charges may still arrive.</p>}
+        {feed?.provisional && <p>Current-period costs are provisional, not finalized invoice amounts.</p>}
+        {!!feed?.missingMonths.length && <p>Missing months: {feed.missingMonths.join(', ')}.</p>}
+        {!!feed?.staleMonths.length && !refreshing && <p>Refresh available for recent or older data.</p>}
+        {feed?.refresh && ['FAILED', 'PARTIAL', 'INTERRUPTED'].includes(feed.refresh.state) && <p>The last refresh did not finish all months. Previously saved records are retained; use Refresh to retry.</p>}
+        {feed?.refresh?.failure === 'UNSUPPORTED_PRECISION' && <p>Some Azure amounts exceed the supported precision. Those months remain unavailable; no amounts were rounded.</p>}
+      </div></details>
       {current && <div className="billing-day-detail" aria-label="Selected day details">
         <div className="billing-day-heading">
           <strong>{fullDate(current.date)}</strong>

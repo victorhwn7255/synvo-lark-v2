@@ -7,6 +7,25 @@ import { feedFixture } from './billingDaily.test-fixture'
 describe('Billing calendar', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
   const id = 'calendar-a'
+  it('collapses the legend and coverage context, shows only the refresh date and keeps failure details accessible', async () => {
+    const feed = { ...feedFixture(), retrievedLast: '2026-09-08T10:02:42Z', provisional: true,
+      missingMonths: ['2025-09', '2025-10'], refresh: { id: 'partial', state: 'PARTIAL' as const, completed: 11, total: 13, failure: 'UNSUPPORTED_PRECISION' } }
+    render(<BillingCalendar api={{ ...billingApi, dailyFeed: vi.fn().mockResolvedValue(feed) }} onAccessError={vi.fn()} />)
+    await screen.findByLabelText('Selected day details')
+    const disclosure = screen.getByText('Legend').closest('details')!
+    expect(disclosure).not.toHaveAttribute('open')
+    expect(disclosure).toContainElement(screen.getByLabelText('Daily cost color scale'))
+    expect(disclosure).toHaveTextContent('Missing months: 2025-09, 2025-10')
+    expect(disclosure).toHaveTextContent('not finalized invoice amounts')
+    expect(disclosure).toHaveTextContent('supported precision')
+    expect(screen.getByText('Last refreshed', { exact: false })).toHaveTextContent('8 Sept 2026')
+    expect(screen.queryByText(/6:02:42|Refresh incomplete\.|Data through|months awaiting data/)).not.toBeInTheDocument()
+    expect(document.querySelector('.billing-daily-freshness')).not.toHaveTextContent(/Missing|provisional|unfinished|precision/i)
+    fireEvent.click(screen.getByText('Legend'))
+    expect(disclosure).toHaveAttribute('open')
+    fireEvent.click(screen.getByText('Legend'))
+    expect(disclosure).not.toHaveAttribute('open')
+  })
   it('keeps the legend compact and future cells blank without losing accessible cost states', async () => {
     const feed = feedFixture()
     const refund = feed.calendar.days.find(day => day.date === '2026-06-02')!
@@ -85,7 +104,8 @@ describe('Billing calendar', () => {
     expect(screen.queryByText(/days with records in|Selected analysis:|source records ·/)).not.toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Spending date')).not.toBeInTheDocument()
-    expect(document.querySelectorAll('.billing-calendar-ramp .billing-swatch')).toHaveLength(5)
+    expect(document.querySelector('.billing-calendar-ramp')).not.toBeInTheDocument()
+    expect(document.querySelectorAll('.billing-calendar-legend [class*="billing-day--level-"]')).toHaveLength(5)
     expect(screen.getByText('Relative spending')).toBeInTheDocument()
     expect(client.dailyFeed).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
   })
