@@ -13,6 +13,10 @@ public interface WorkspaceConversationAgent {
 
 	boolean enabled();
 
+	/** Checks task ownership before ordinary conversation content is persisted. */
+	default void verifyConversationAccess(String ownerOpenId, UUID conversationId, boolean workflowManaged) {
+	}
+
 	ConversationOutcome runConversation(
 			ConversationCommand command,
 			ConversationObserver observer,

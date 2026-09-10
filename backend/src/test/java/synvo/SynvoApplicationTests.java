@@ -521,6 +521,23 @@ class SynvoApplicationTests {
 		assertTrue(accepted.body().contains("\"userAuthorization\":\"disabled\""));
 	}
 
+	@Test
+	void billingReadRoutesRequireSessionAndBillingWritesRequireCsrf() throws Exception {
+		var client = HttpClient.newHttpClient();
+		String id = "00000000-0000-4000-8000-000000000099";
+		for (String path : List.of("", "/daily", "/reports/" + id, "/reports/" + id + "/pdf", "/reports/" + id + "/evidence", "/work/" + id + "/answer", "/work/" + id + "/activity", "/work/" + id + "/interactions")) {
+			var response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/billing-insights" + path)).GET().build(), HttpResponse.BodyHandlers.ofString());
+			assertEquals(401, response.statusCode());
+			assertEquals("no-store", response.headers().firstValue("Cache-Control").orElse(""));
+		}
+		var response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/billing-insights/generations"))
+				.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}" )).build(), HttpResponse.BodyHandlers.ofString());
+		assertEquals(403, response.statusCode());
+		var daily = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/billing-insights/daily/refresh"))
+				.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"key\":\"untrusted\"}")).build(), HttpResponse.BodyHandlers.ofString());
+		assertEquals(403, daily.statusCode());
+	}
+
 	private static LarkUserConnection connection(String accessCiphertext, String refreshCiphertext) {
 		return new LarkUserConnection(
 				"ou-integration",

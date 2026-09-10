@@ -12,7 +12,47 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ArchitectureBoundaryTests {
 
+    @Test void dailyFeedHasNoReportAgentOrProviderDependency() throws IOException {
+        assertSourcesDoNotContain(path -> path.getFileName().toString().startsWith("DailySpending") && isUnder(path, "synvo/billing"),
+                List.of("BillingWorkflow", "synvo.workspaceagent.", "synvo.integration.", "synvo.persistence.", "synvo.agent."),
+                "Daily retrieval is an independent billing concern, not report or model execution");
+        assertSourcesDoNotContain(path -> isUnder(path, "synvo/api"),
+                List.of("DailySpendingStore", "JdbcDailySpendingStore", "DailyCostAggregation", "billing_daily_"),
+                "Daily HTTP uses authorized presentation, not evidence or checkpoint internals");
+    }
+
 	private static final Path SOURCE_ROOT = sourceRoot();
+
+	@Test
+	void billingWorkflowHidesSourceAndEngineProtocols() throws IOException {
+		assertSourcesDoNotContain(path -> isUnder(path, "synvo/api") || isUnder(path, "synvo/lark"),
+				List.of("JdbcBillingWorkflowStore", "billing_workflow_work", "billing_workflow_report"),
+				"Saved analysis and question history must use the authorized billing facade");
+		assertSourcesDoNotContain(path -> isUnder(path, "synvo/billingworkflow"),
+				List.of("synvo.api.", "synvo.lark.", "synvo.persistence.", "synvo.integration.",
+						"com.azure.", "thread/start", "turn/start"),
+				"Billing workflow composes application facades, not transport or storage adapters");
+		assertSourcesDoNotContain(path -> isUnder(path, "synvo/api") || isUnder(path, "synvo/lark"),
+				List.of("BillingAnalysisPackage", "BillingReportFacts", "TransientWorkspaceInput", "BillingDailyCosts.calculate", "visitEvidence(",
+						"createWorkflowTask(", "workflowActivity(", "decideWorkflowInteraction("),
+				"Billing surfaces must not access private package and calculation mechanics");
+		assertSourcesDoNotContain(path -> !isUnder(path, "synvo/billingworkflow"),
+				List.of("org.apache.pdfbox."), "PDF rendering stays inside the billing report module");
+	}
+
+	@Test
+	void billingHidesProviderStorageAndAgentDetails() throws IOException {
+		assertSourcesDoNotContain(path -> isUnder(path, "synvo/billing"),
+				List.of("synvo.api.", "synvo.lark.", "synvo.persistence.", "synvo.integration.",
+						"synvo.workspaceagent.", "com.azure.", "org.apache.commons.csv", "tools.jackson."),
+				"Billing must expose only authorized normalized evidence and deterministic accounting");
+		assertSourcesDoNotContain(path -> isUnder(path, "synvo/api") || isUnder(path, "synvo/lark"),
+				List.of("synvo.integration.azurebilling", "JdbcBillingStore"),
+				"Surfaces must use the billing facade");
+		assertSourcesDoNotContain(path -> !isUnder(path, "synvo/integration/azurebilling") && !isUnder(path, "synvo/configuration"),
+				List.of("com.azure.", "org.apache.commons.csv", "generateCostDetailsReport"),
+				"Azure protocol and SDK knowledge must remain private");
+	}
 
 	@Test
 	void agentApplicationDoesNotDependOnSurfaceAdapters() throws IOException {

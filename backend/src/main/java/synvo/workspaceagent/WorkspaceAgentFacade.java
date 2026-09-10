@@ -106,6 +106,14 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		return enabled;
 	}
 
+	@Override
+	public void verifyConversationAccess(String ownerOpenId, UUID conversationId, boolean managed) {
+		if (managed) policy.requireOwner(ownerOpenId);
+		Optional<TaskRecord> task = conversationId == null ? Optional.empty()
+				: repository.findByConversation(ownerOpenId, conversationId);
+		if (task.isPresent() ? task.get().workflowManaged() != managed : managed) throw notFound();
+	}
+
 	public StatusView status(String ownerOpenId) {
 		policy.requireOwner(ownerOpenId);
 		WorkspaceAgentEngine.EngineStatus status = engine.status();
@@ -140,15 +148,30 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 			String workspaceId,
 			RunMode mode,
 			String requestedTitle) {
+		return createTask(ownerOpenId, workspaceId, mode, requestedTitle, false);
+	}
+
+	/** Application-only entry; the owning workflow authorizes its saved source first. */
+	public TaskView createWorkflowTask(String ownerOpenId, String workspaceId, String title) {
+		return createTask(ownerOpenId, workspaceId, RunMode.WORKSPACE_WRITE, title, true);
+	}
+
+	private TaskView createTask(String ownerOpenId, String workspaceId, RunMode mode,
+			String requestedTitle, boolean managed) {
 		policy.requireOwner(ownerOpenId);
+		if (workspaces.require(workspaceId).workflowManaged() != managed) {
+			throw notFound();
+		}
 		requireReady();
+		if (managed) requireSubscription();
 		workspaces.verifyMode(workspaceId, mode);
 		String title = title(requestedTitle, "New Codex task");
 		workspaces.require(workspaceId);
 		var handle = engine.createTask(workspaces.target(workspaceId), mode);
 		try {
-			return view(repository.createTask(
-					ownerOpenId, workspaceId, mode, title, handle.reference()));
+			return view(managed
+					? repository.createWorkflowTask(ownerOpenId, workspaceId, mode, title, handle.reference())
+					: repository.createTask(ownerOpenId, workspaceId, mode, title, handle.reference()));
 		}
 		catch (RuntimeException persistenceFailure) {
 			deleteEngineTaskQuietly(handle.reference());
@@ -183,6 +206,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		}
 		return repository.listOwnedTasks(ownerOpenId, archived, search, TASK_LIST_LIMIT)
 				.stream()
+				.filter(task -> !task.workflowManaged())
 				.filter(task -> workspaces.contains(task.workspaceId()))
 				.map(this::view)
 				.toList();
@@ -242,11 +266,30 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 	public void deleteTask(String ownerOpenId, UUID taskId) {
 		policy.requireOwner(ownerOpenId);
 		TaskRecord task = requireTask(ownerOpenId, taskId);
-		stopAndAwaitTaskOperation(taskId);
+		deleteTask(task);
+	}
+
+	/** Called only by an application workflow after validating its own source/retention binding. */
+	public TaskView workflowTask(String ownerOpenId, UUID taskId) {
+		return view(requireWorkflowTask(ownerOpenId, taskId));
+	}
+
+	public void deleteWorkflowTask(String ownerOpenId, UUID taskId) {
+		deleteTask(requireWorkflowTask(ownerOpenId, taskId));
+	}
+
+	private void deleteTask(TaskRecord task) {
+		stopAndAwaitTaskOperation(task.taskId());
 		engine.deleteTask(task.taskReference());
-		if (!repository.deleteOwnedTask(ownerOpenId, taskId)) {
+		if (!repository.deleteOwnedTask(task.ownerOpenId(), task.taskId())) {
 			throw notFound();
 		}
+	}
+
+	private TaskRecord requireWorkflowTask(String ownerOpenId, UUID taskId) {
+		policy.requireOwner(ownerOpenId);
+		return repository.findOwnedTask(ownerOpenId, taskId).filter(TaskRecord::workflowManaged)
+				.orElseThrow(WorkspaceAgentFacade::notFound);
 	}
 
 	@Override
@@ -259,6 +302,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		Objects.requireNonNull(cancellation, "cancellation");
 		policy.requireOwner(command.ownerOpenId());
 		requireReady();
+		if (command.workflowManaged()) requireSubscription();
 		if (command.text().isBlank() || command.text().length() > MAX_TURN_TEXT) {
 			throw invalid();
 		}
@@ -386,6 +430,35 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 			long afterSequence) {
 		policy.requireOwner(ownerOpenId);
 		OperationRecord operation = requireOwnedOperationAnyState(ownerOpenId, operationId);
+		return activity(operation, afterSequence);
+	}
+
+	public List<ActivityView> workflowActivity(String ownerOpenId, UUID taskId, UUID runId, long afterSequence) {
+		requireWorkflowTask(ownerOpenId, taskId);
+		return repository.findLatestOperation(taskId).filter(operation -> runId != null && runId.equals(operation.conversationRunId()))
+				.map(operation -> activity(operation, afterSequence)).orElse(List.of());
+	}
+
+	public List<InteractionView> workflowInteractions(String ownerOpenId, UUID taskId, UUID runId) {
+		requireWorkflowTask(ownerOpenId, taskId);
+		var operation = repository.findLatestOperation(taskId).filter(value -> runId != null && runId.equals(value.conversationRunId()));
+		if (operation.isEmpty()) return List.of();
+		return repository.listPendingInteractions(ownerOpenId, taskId).stream()
+				.filter(record -> record.operationId().equals(operation.get().operationId()))
+				.map(record -> interactionView(record, true)).toList();
+	}
+
+	public InteractionView decideWorkflowInteraction(String ownerOpenId, UUID taskId, UUID runId, UUID interactionId,
+			InteractionDecision decision, Map<String, String> formValues) {
+		requireWorkflowTask(ownerOpenId, taskId);
+		InteractionRecord record = repository.findOwnedInteraction(ownerOpenId, interactionId)
+				.filter(value -> value.taskId().equals(taskId)).orElseThrow(WorkspaceAgentFacade::notFound);
+		if (repository.findOperation(record.operationId()).filter(operation -> runId != null && runId.equals(operation.conversationRunId())).isEmpty()) throw notFound();
+		return decideInteraction(ownerOpenId, record, decision, formValues);
+	}
+
+	private List<ActivityView> activity(OperationRecord operation, long afterSequence) {
+		UUID operationId = operation.operationId();
 		OperationRuntime runtime = runtime(operationId);
 		if (runtime != null) {
 			return runtime.eventsAfter(afterSequence);
@@ -407,6 +480,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		policy.requireOwner(ownerOpenId);
 		InteractionRecord record = repository.findOwnedInteraction(ownerOpenId, interactionId)
 				.orElseThrow(WorkspaceAgentFacade::notFound);
+		requireTask(ownerOpenId, record.taskId());
 		return interactionView(record, true);
 	}
 
@@ -418,6 +492,13 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		policy.requireOwner(ownerOpenId);
 		InteractionRecord record = repository.findOwnedInteraction(ownerOpenId, interactionId)
 				.orElseThrow(WorkspaceAgentFacade::notFound);
+		requireTask(ownerOpenId, record.taskId());
+		return decideInteraction(ownerOpenId, record, decision, formValues);
+	}
+
+	private InteractionView decideInteraction(String ownerOpenId, InteractionRecord record,
+			InteractionDecision decision, Map<String, String> formValues) {
+		UUID interactionId = record.interactionId();
 		if (record.status() != WorkspaceAgentRepository.InteractionStatus.PENDING) {
 			if (record.decision() == decision) {
 				return interactionView(record, false);
@@ -574,6 +655,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		Optional<TaskRecord> existing = repository.findByConversation(
 				command.ownerOpenId(), command.conversationId());
 		if (existing.isEmpty()) {
+			if (command.workflowManaged()) throw notFound();
 			WorkspaceDefinition workspace = workspaces.requireNativeChatDefault();
 			var handle = engine.createTask(
 					workspaces.target(workspace.id()), RunMode.READ_ONLY);
@@ -589,6 +671,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 			}
 		}
 		TaskRecord task = existing.get();
+		if (task.workflowManaged() != command.workflowManaged()) throw notFound();
 		ensureTaskAvailable(task);
 		boolean hasPriorTurn = repository.hasTerminalTurn(task.taskId());
 		try {
@@ -920,7 +1003,7 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 		if (task.archived()) {
 			throw invalid();
 		}
-		workspaces.require(task.workspaceId());
+		if (workspaces.require(task.workspaceId()).workflowManaged() != task.workflowManaged()) throw notFound();
 		workspaces.verifyMode(task.workspaceId(), task.mode());
 	}
 
@@ -957,23 +1040,25 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 	}
 
 	private OperationRecord requireOwnedOperation(String ownerOpenId, UUID operationId) {
-		return repository.findOperation(operationId)
-				.filter(operation -> operation.ownerOpenId().equals(ownerOpenId))
+		OperationRecord operation = repository.findOperation(operationId)
+				.filter(candidate -> candidate.ownerOpenId().equals(ownerOpenId))
 				.orElseThrow(WorkspaceAgentFacade::notFound);
+		requireTask(ownerOpenId, operation.taskId());
+		return operation;
 	}
 
 	private OperationRecord requireOwnedOperationAnyState(String ownerOpenId, UUID operationId) {
 		OperationRuntime runtime = runtime(operationId);
 		if (runtime != null && runtime.operation.ownerOpenId().equals(ownerOpenId)) {
+			requireTask(ownerOpenId, runtime.operation.taskId());
 			return runtime.operation;
 		}
-		return repository.findOperation(operationId)
-				.filter(operation -> operation.ownerOpenId().equals(ownerOpenId))
-				.orElseThrow(WorkspaceAgentFacade::notFound);
+		return requireOwnedOperation(ownerOpenId, operationId);
 	}
 
 	private TaskRecord requireTask(String ownerOpenId, UUID taskId) {
 		return repository.findOwnedTask(ownerOpenId, taskId)
+				.filter(task -> !task.workflowManaged())
 				.orElseThrow(WorkspaceAgentFacade::notFound);
 	}
 
@@ -1057,6 +1142,13 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 			engine.deleteTask(taskReference);
 		}
 		catch (RuntimeException ignored) {
+		}
+	}
+
+	private void requireSubscription() {
+		var account = engine.account();
+		if (account.authenticationRequired() || !"chatgpt".equals(account.authentication())) {
+			throw new WorkspaceAgentException(WorkspaceAgentException.Code.AUTHENTICATION_REQUIRED);
 		}
 	}
 
@@ -1309,10 +1401,16 @@ public final class WorkspaceAgentFacade implements WorkspaceConversationAgent {
 			String text,
 			List<VisibleMessage> context,
 			String reasoningEffort,
-			String skillName
+			String skillName,
+			boolean workflowManaged
 	) {
 		public ConversationCommand {
 			context = List.copyOf(context);
+		}
+
+		public ConversationCommand(String ownerOpenId, UUID conversationId, UUID conversationRunId,
+				String requestId, String text, List<VisibleMessage> context, String reasoningEffort, String skillName) {
+			this(ownerOpenId, conversationId, conversationRunId, requestId, text, context, reasoningEffort, skillName, false);
 		}
 	}
 

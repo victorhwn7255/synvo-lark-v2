@@ -1,0 +1,28 @@
+# Append after compose.yaml, compose.codex.yaml and compose.billing.yaml.
+# Create the private, group-shared host directory before enabling this overlay.
+services:
+  backend:
+    group_add: ["10001"]
+    environment:
+      SYNVO_BILLING_WORKFLOW_ENABLED: "true"
+      SYNVO_BILLING_WORKFLOW_WORKSPACE_ID: billing
+      SYNVO_BILLING_WORKFLOW_PACKAGE_ROOT: /workspaces/billing
+      SYNVO_CODEX_WORKSPACES_3_ID: billing
+      SYNVO_CODEX_WORKSPACES_3_DISPLAY_NAME: Billing
+      SYNVO_CODEX_WORKSPACES_3_RUNNER_ROOT: /workspaces/billing
+      SYNVO_CODEX_WORKSPACES_3_NATIVE_CHAT_DEFAULT: "false"
+      SYNVO_CODEX_WORKSPACES_3_WRITE_ENABLED: "true"
+      SYNVO_CODEX_WORKSPACES_3_WORKFLOW_MANAGED: "true"
+    volumes:
+      - type: bind
+        source: ./workspaces/Billing
+        target: /workspaces/billing
+        bind:
+          create_host_path: false
+  codex-runner:
+    volumes:
+      - type: bind
+        source: ./workspaces/Billing
+        target: /workspaces/billing
+        bind:
+          create_host_path: false

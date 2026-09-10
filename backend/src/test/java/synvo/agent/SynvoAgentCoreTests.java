@@ -31,6 +31,49 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SynvoAgentCoreTests {
 
 	@Test
+	void workflowInputAndDraftRemainTransientWhileUsingTheExistingAgent() {
+		FakeConversationStore store = new FakeConversationStore();
+		FakeModelGateway model = FakeModelGateway.responding("must not be used");
+		WorkspaceConversationAgent agent = new WorkspaceConversationAgent() {
+			public boolean enabled() { return true; }
+			public void stopConversationRun(UUID id) { }
+			public ConversationOutcome runConversation(ConversationCommand command,
+					ConversationObserver observer, java.util.function.BooleanSupplier cancellation) {
+				assertTrue(command.workflowManaged());
+				assertEquals("private package instructions", command.text());
+				assertTrue(command.context().isEmpty());
+				observer.onMessageDelta("sensitive draft");
+				observer.onMessageReset();
+				return new ConversationOutcome(UUID.randomUUID(), UUID.randomUUID(),
+						TerminalStatus.COMPLETED, "sensitive draft", "Finished");
+			}
+		};
+		UUID conversation = UUID.randomUUID();
+		var request = new ConversationRequest("workflow-test", conversation, "ou-victor",
+				"sensitive question", null, "high", null,
+				new TransientWorkspaceInput("private package instructions"));
+		var result = new SynvoAgentCore(new IntentRouter(), store, model, agent).converse(request);
+		assertEquals("sensitive draft", result.response());
+		assertTrue(model.requests().isEmpty());
+		assertEquals(0, store.requestedMaxMessages);
+		assertEquals(0, store.resetCount);
+		assertFalse(states(result).contains(State.CONTENT_DELTA));
+		assertFalse(store.contextByConversation.get(conversation).toString().contains("sensitive"));
+		assertFalse(store.contextByConversation.get(conversation).toString().contains("private package"));
+		assertFalse(request.toString().contains("private package"));
+	}
+
+	@Test
+	void workflowNeverFallsBackToThePaidModel() {
+		FakeModelGateway model = FakeModelGateway.responding("must not be used");
+		var result = new SynvoAgentCore(new IntentRouter(), new FakeConversationStore(), model)
+				.converse(new ConversationRequest("workflow-disabled", UUID.randomUUID(), "ou-victor",
+						"placeholder", null, null, null, new TransientWorkspaceInput("Analyze saved files")));
+		assertEquals(Status.FAILED, result.status());
+		assertTrue(model.requests().isEmpty());
+	}
+
+	@Test
 	void enabledWorkspaceAgentOwnsTheAgenticTurnWithoutCallingTheLegacyModel() {
 		FakeConversationStore store = new FakeConversationStore();
 		FakeModelGateway model = FakeModelGateway.responding("must not be used");

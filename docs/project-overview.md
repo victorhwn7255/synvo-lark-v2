@@ -14,6 +14,40 @@ The product roadmap is deliberately staged:
 2. `wf-keystone-quotation` adds the first opinionated, bounded workplace
    workflow: accurate Keystone quotation generation in Lark H5.
 
+Approved 2026-09-07: Billing Insights Phase 2 data-foundation work may proceed
+alongside Keystone, without changing Keystone's first-workflow release
+designation or the Codex-in-Lark foundation scope. Its bounded Azure retrieval,
+deterministic calculations and protected evidence remain in the existing Java
+modular monolith/PostgreSQL, separate from agent execution. On 2026-09-08 the user
+requested another clean restart of Billing Insights workflow Phase 3 from the
+completed Phase 2 baseline and explicitly permitted Codex tools as needed.
+The replacement direction is Java retrieval/storage/exact calculation, a dedicated
+configured billing workspace containing derived evidence and facts, ordinary
+subscription-backed Codex task analysis, then validated reports and report-owned
+questions. The tool-free adapter and its qualification gates are retired.
+Use the existing task/conversation/policy owners, gpt-5.6-sol, runner-owned
+subscription authentication and pinned integration; no paid API, second runner,
+custom harness or runtime upgrade. Tools retain existing sandbox/approval/network
+ceilings; a workspace directory is not claimed to provide read isolation.
+The user approved revision 3 and requested implementation on 2026-09-08;
+the specification/build plan are now Complete for the user-approved desktop-only
+local pilot (sign-off 2026-09-08). Actual-phone/native accessibility checks are
+explicitly deferred to Billing Phase 4 before production release; no mobile or
+general production approval is implied. Prior reset designs stay retired.
+Company-data staging, model processing, thread/workspace retention and local
+deployment retain explicit gates. Keystone's release designation and the
+separate Codex-in-Lark implementation are preserved.
+Authority: [Billing Insights Phase 3](specs/wf-billing-insights/phase-3-h5-reports-and-investigation.md) and
+[Billing Insights Phase 2](specs/wf-billing-insights/phase-2-azure-integration-and-billing-accuracy.md).
+
+Approved 2026-09-08: Daily Azure Spending uses an independent, explicitly refreshed
+profile feed, with month-sized historical and current-month retrieval, durable
+replacement checkpoints and no agent execution. Saved analysis/PDF/question
+evidence remains immutable and separate. The bounded feed starts September 2025,
+retains the current and twelve preceding months, and shares the existing Azure
+retrieval concurrency/limits. No scheduler, provider, or infrastructure is added.
+Authority: [independent daily refresh](specs/wf-billing-insights/daily-spending-independent-refresh.md).
+
 This document is the high-level product and engineering reference. The exact
 Phase 3 scope, contracts, security decisions, gates, and acceptance tests live
 in `docs/specs/phase-3-codex-in-lark.md`.

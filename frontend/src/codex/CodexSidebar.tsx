@@ -20,6 +20,8 @@ export function CodexSidebar({
   collapsed,
   modal = false,
   settingsActive,
+  billingActive = false,
+  onOpenBilling,
   tasks,
   selectedTaskId,
   archived,
@@ -39,6 +41,8 @@ export function CodexSidebar({
   collapsed: boolean
   modal?: boolean
   settingsActive: boolean
+  billingActive?: boolean
+  onOpenBilling?: () => void
   tasks: CodexTask[]
   selectedTaskId: string | null
   archived: boolean
@@ -135,6 +139,9 @@ export function CodexSidebar({
             <span className="workspace-sidebar__label">Quotation</span>
             <small className="workspace-sidebar__label">Coming soon</small>
           </button>
+          {onOpenBilling && <button className="workspace-nav-item codex-workflow-link" type="button" aria-label="Billing Insights" title={collapsed ? 'Billing Insights' : undefined} data-active={billingActive} aria-current={billingActive ? 'page' : undefined} onClick={onOpenBilling}>
+            <ArtifactIcon /><span className="workspace-sidebar__label">Billing Insights</span>
+          </button>}
         </nav>
 
         <nav

@@ -1538,3 +1538,249 @@ Do not discard pending input or infer a successful decision from absence.
 - `frontend/src/codex/useCodexWorkspace.ts`
 - `frontend/src/codex/CodexInteractionDrawer.tsx`
 - `frontend/design/prototype/src/demo.ts`
+
+## 2026-09-07 — Preserve generated bundle bytes during HTML substitution
+
+### Symptom and confirmed cause
+
+The isolated Billing Insights preview built successfully but opened blank with
+a JavaScript syntax error. Its builder passed generated JavaScript directly as
+the replacement string to `String.replace`. JavaScript replacement-string dollar
+sequences were interpreted during substitution, corrupting the embedded bundle.
+
+### Resolution and preventive rule
+
+Use a replacement callback when inserting generated content into an HTML
+template, so the returned content is inserted literally. Still escape closing
+script/style tags for the embedding context. A successful bundler invocation
+does not prove the final generated HTML contains executable JavaScript.
+
+### Verification
+
+`docs/specs/wf-billing-insights/prototype/artifact.test.mjs` parses the actual
+generated inline script with `node:vm.Script` and checks the standalone CSP.
+The rebuilt preview then rendered successfully in the browser. Its final
+32-test suite, strict typecheck, lint and build passed; this proves the local
+preview packaging, not a production Azure integration.
+
+## 2026-09-07 — Do not leak migration-test schema state through pooled connections
+
+### Symptom and confirmed cause
+
+New asynchronous billing integration tests passed alone but intermittently read
+missing or permanently running imports in the complete backend suite. An older
+migration test issued PostgreSQL SET search_path on a pooled connection and did
+not restore it. Later request and worker transactions used different schemas.
+Replacing the SQL statement with Connection.setSchema was insufficient because
+the pool did not have an explicit default schema to restore.
+
+### Resolution and preventive rule
+
+Use schema-qualified SQL when testing a disposable migration schema. Do not
+change pooled session state unless its restoration is explicit and verified.
+Focused success cannot establish isolation for asynchronous database code; run
+the complete suite and repeat the affected lifecycle test after the fix.
+
+### Verification
+
+WorkspaceAgentPersistenceTests now qualifies the temporary schema's inserts and
+lookups instead of changing search_path. BillingFacadeIntegrationTests repeats
+the failed-after-staging lifecycle 20 times. The focused combined suite and
+subsequent full backend test/package runs passed, including real PostgreSQL
+publication, recovery and retention cases. No production migration was changed
+to compensate for this test-only session-state bug.
+
+## 2026-09-07 — Test provider spelling and numeric representation, not just intended values
+
+### Symptom and confirmed causes
+
+The Billing Insights synthetic suite passed, but the separately authorized Java
+live gate rejected real Cost Details responses before publication. The live
+provider used signed polling parameters, a trailing slash in the scope echo,
+month-first CSV dates and redundant fractional zeros beyond the storage scale.
+Initial fixtures did not represent those wire-level variants. The earlier
+in-memory feasibility probe did not exercise the production parser or persistence
+constraints and could not establish their compatibility.
+
+### Resolution and preventive rule
+
+Reproduce observed structural variants with synthetic values. Keep exact scope
+and origin checks while recognizing narrowly defined canonical spellings; bind
+opaque polling parameters to the first validated provider-issued URL and never
+log them. Parse the pinned source date format explicitly, not using host locale.
+Distinguish numeric value precision from redundant formatting zeros: normalize
+only with UNNECESSARY rounding and retain source scale, while still rejecting
+nonzero digits outside the approved bound. Do not loosen limits or invent a
+balancing adjustment to turn an acceptance failure green.
+
+For independent multi-month ingestion, distinguish unsupported numeric precision
+from campaign resource limits. Reject and discard the affected staged partition
+without advancing its coverage; continue accessible months. A row/byte/time quota
+must stop the whole campaign. Reusing one generic LIMIT_EXCEEDED reason for both
+conditions incorrectly lets one old format prevent retrieval of newer data.
+DailySpendingFacadeTests and DailySpendingPersistenceTests protect this distinction;
+the authorized 2026-09-08 backfill preserved historical gaps while publishing
+validated newer months without rounding the rejected values.
+
+### Verification
+
+AzureBillingSourceTests covers signed polling, changed token/location rejection
+and exact canonical scope matching. CostCsvTests covers strict month-first dates,
+invalid dates, exact zero normalization and genuinely excessive precision.
+Those focused tests passed. Authorized live diagnostics confirmed the formats
+using field types, masked patterns and precision counts only; no source rows,
+amounts or credential values were copied into tests or these notes. Live phase
+closure remains governed by the phase specification's Completion Audit.
+
+The invoice gate also exposed an overly broad special-tax presence check.
+Recognized source metadata must be interpreted, not simply discarded or treated
+as proof of ambiguity. The adapter now establishes comparability independently
+from explicit zero credits and the exact invoice identity original total = billed
+charges + tax, with an optional subtotal consistency check. Unknown tax types,
+missing proof fields, credits/rebills and failed identities still fail closed.
+AzureBillingSourceTests covers both recognized types and the negative cases;
+the reconciliation target and currency rounding rule are unchanged. Mapping v3
+retains the source tax marker; it never rewrites earlier snapshot conclusions.
+
+## 2026-09-07 — Read-only is not a workspace read-isolation guarantee
+
+### Confirmed cause
+
+Billing Insights P3-1 requires company evidence to enter an execution context
+that cannot inspect unrelated workspaces. The pinned runner's legacy readOnly
+policy has no read-root allowlist. In a credential-free disposable container,
+Codex 0.148.0's built-in :read-only sandbox denied a write but allowed reads of
+invented canaries in a sibling workspace and a private same-user directory.
+Selecting an empty cwd or using mode READ_ONLY cannot establish read isolation.
+
+### Preventive rule
+
+Before reusing an agent sandbox for a stricter data workflow, test read and write
+boundaries independently using synthetic files in the relevant topology. Never
+probe real credentials. Profile discovery does not prove profile selection is
+stable: this runtime accepted permissionProfile/list but rejected thread/start's
+permissions field with -32600 without experimental opt-in. Do not enable a
+forbidden API or weaken the policy to turn a failed acceptance gate green.
+
+### Verification and disposition
+
+The retired `test_billing_isolation_probe.py` reproduced two failed read subchecks
+and a successful stable-only exclusion check without model calls, real credentials
+or business data. The ordinary runner regression then passed 70 tests. On the
+user's 2026-09-07 clean-restart request, the probe was removed from active tests;
+its byte-identical recovery copy and historical audits are under
+`tasks/billing-insights-phase-3-reset-20260907/`. The replacement workflow Phase 3
+specification is Draft. Removal does not fix or invalidate this confirmed finding.
+
+## 2026-09-07 — Audit the effective tool surface, not only the tools array
+
+### Confirmed cause and preventive rule
+
+The pinned 0.148.0 runtime can place model tool declarations in input items of
+type additional_tools, including nested namespaces. Looking only at the top-level
+tools array made both ordinary and restricted synthetic requests appear tool-free.
+Before accepting a tool-exclusion gate, use a known tool-enabled control, inspect
+every declaration channel, and exercise fabricated calls through actual dispatch.
+Feature flags, an empty array and a model's textual refusal are insufficient.
+
+### Verification and disposition
+
+The retired credential-free test_billing_tool_free_probe.py inspected both declaration
+locations and compares ordinary-before/restricted/ordinary-after threads. Billing
+overrides retained exec/wait/request_user_input; injected JS exposed callable
+apply_patch/update_plan while exec_command was unavailable. No patch, real-data
+read or external inference occurred. The probe intentionally fails the approved
+tool-free gate; the ordinary regression at that time passed 70 tests (three
+opt-in tests skipped). The probe and original audit were archived on the user's
+clean-restart request under `tasks/billing-insights-phase-3-reset-20260907/` and
+removed from active test discovery. This remains a confirmed historical limitation,
+not a fixed production boundary or a requirement to revive the retired design.
+
+On 2026-09-08 the user separately approved one newer-candidate evaluation.
+Codex 0.153.4 reproduced the effective-tool problem with a new disposable
+network-disabled fixture: all stable feature flags disabled on the billing
+thread still exposed exec/wait/request_user_input, and an injected exec call
+returned a harmless execution marker. apply_patch was listed, not invoked.
+Ordinary-before/after declared tools matched. No credentials, business data or
+real inference were used. The candidate was rejected without changing the
+production pin or repeating a version search. Reproduction and decision are in
+the archived tasks/billing-compatibility-20260908.py and matching execution notes;
+this is failed-boundary evidence, not a full runner regression or a remediation.
+
+2026-09-08 disposition: the user explicitly replaced the no-tools requirement
+with normal permitted Codex task tools and requested another clean Phase 2
+baseline. The later compatibility script and all Billing Phase 3 implementation
+were removed from active source after archival in
+tasks/billing-insights-phase-3-reset-20260908.w5rXbx/before-reset.tar.gz.
+Revision 3 is a workspace-based Draft. Tool-exclusion failures are no longer
+acceptance gates for that design; they have not become passing tests.
+The read-isolation finding still applies: workspace organization must not be
+presented as an OS-enforced restriction on every readable file. The reset audit
+records the independently run baseline regression evidence.
+
+## 2026-09-08 — Derived-report expiry must agree with its authorization lifetime
+
+The Billing work record enforced a shorter expiry than the successful source
+snapshot, but report publication copied the source expiry into report metadata
+and PDF. A report could therefore advertise availability after access would be
+denied. Source retention and derived-report access are separate policies.
+
+Compute the effective minimum at the owning application boundary and propagate
+it to presentation, PDF, workspace manifests and follow-up packages. Apply the
+same rule when reading legacy records; do not silently extend authorization or
+rewrite immutable source facts to reconcile metadata.
+
+Regression evidence: BillingWorkflowFacadeTests covers legacy report/PDF expiry
+and publication consistency; BillingAnalysisPackageTests covers shorter work
+expiry with a longer-lived source. Both passed in the clean full backend package
+verification. Rendered report review confirmed the corrected displayed lifetime.
+
+## 2026-09-08 — Model output instructions must disclose validator limits
+
+A live Billing follow-up completed in Codex but failed publication with generic
+SOURCE_INVALID. Metadata-only replay of the retained public-message events
+confirmed valid JSON containing 13 unique references; the statement validator
+permits 12. The prompt omitted this cap. Cited rows, fact pointers, numeric claims
+and input hashes passed the read-only checks, so successful inference was not
+evidence of a publishable answer. The UI's generic failure obscured the distinction.
+
+Preventive rule: keep prompt output budgets aligned with deterministic validators,
+test exact-limit and one-over-limit payloads, and return safe, actionable validation
+categories without exposing raw rejected answers. Do not weaken grounding checks
+or silently trim citations to hide a contract mismatch. The shared prompt's 32,000
+character budget also differed from the answer validator's 12,000; that was not
+the cause of this observed failure.
+
+Remediation evidence: BillingReportAnalysis now supplies prompt budgets from its
+validator constants, with fixed safe answer-failure categories and unchanged
+grounding checks. Exact/over-limit and invalid-fact/claim tests passed; facade
+regression verifies stored report/PDF preservation, one invocation per request
+and no source refetch. Full backend test/package: 362 tests, zero failures/errors,
+five explicit opt-in skips. Frontend: 236 tests plus typecheck/lint/build passed.
+The user-approved single retry in signed-in Lark completed and published a valid
+answer with 12 references, eight claims and 1,208 text characters. Native UI
+confirmed the answer and expandable citations. Persisted original report/PDF
+fingerprints and source/daily-run counts were unchanged. This verifies the repair,
+not all remaining workflow acceptance gates.
+
+## 2026-09-10 — Separate panel scrolling from the reading column
+
+Settings placed `overflow: auto` on the same max-width element that contained
+the cards. Its scrollbar consequently ran against the card edge in the middle
+of the available panel, instead of at the panel boundary. Styling the scrollbar
+alone would not fix the underlying scroll ownership.
+
+Keep the viewport-sized panel as the single scroll owner with explicit minimum
+size constraints. Put centered, padded content in a separate non-scrolling
+inner element. Reuse the themed scrollbar gutter, retain keyboard focus for
+scrolling, and check that the final expanded section remains reachable with
+bottom padding. Do not hide overflow merely to conceal a misplaced scrollbar.
+
+Verification: SettingsView regression coverage protects the separate reading
+column, focusable scroll region, honest usage states, workspace ceilings and
+busy disconnect behavior. All 251 frontend tests, typecheck, lint and build
+passed. Browser checks confirmed that PageDown changes the panel's scrollTop
+without scrolling the document or inner column, with no horizontal panel
+overflow. Dark desktop and narrow light layouts rendered correctly, including
+expanded diagnostics at the bottom. Native desktop Lark verified the deployed
+redesign without disconnecting or changing account/workspace permissions.

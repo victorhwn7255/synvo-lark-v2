@@ -434,7 +434,7 @@ describe('Workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
 
-    expect(screen.getByRole('heading', { name: 'Connection and workspace access' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Settings', level: 2 })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Knowledge Sources' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument()
     expect(screen.getByText('Workspace information unavailable.')).toBeInTheDocument()
@@ -509,7 +509,7 @@ describe('Workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(workspace).toHaveAttribute('data-sidebar-collapsed', 'true')
-    expect(screen.getByRole('heading', { name: 'Connection and workspace access' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Settings', level: 2 })).toBeInTheDocument()
   })
 })
 

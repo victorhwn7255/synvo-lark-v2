@@ -59,6 +59,63 @@ import static org.mockito.Mockito.when;
 
 class WorkspaceAgentFacadeTests {
 
+	@Test
+	void workflowActivityDoesNotReplayThePreviousQuestionsTerminalEvent() {
+		TaskRecord managed = new TaskRecord(taskId, conversationId, "ou-victor", "pilot",
+				RunMode.READ_ONLY, "Workflow", "ref", false, false, Instant.now(), Instant.now(), true);
+		when(repository.findOwnedTask("ou-victor", taskId)).thenReturn(Optional.of(managed));
+		UUID previousRun = UUID.randomUUID();
+		when(repository.findLatestOperation(taskId)).thenReturn(Optional.of(new OperationRecord(UUID.randomUUID(), taskId,
+				previousRun, "ou-victor", "pilot", "previous", OperationType.TURN, OperationStatus.COMPLETED, "ref", Instant.now(), Instant.now())));
+		assertTrue(facade.workflowActivity("ou-victor", taskId, UUID.randomUUID(), -1).isEmpty());
+		assertTrue(facade.workflowInteractions("ou-victor", taskId, UUID.randomUUID()).isEmpty());
+		assertTrue(facade.workflowActivity("ou-victor", taskId, null, -1).isEmpty());
+	}
+
+	@Test
+	void workflowTasksRejectOrdinaryConversationAndTaskEntryPoints() {
+		TaskRecord managed = new TaskRecord(taskId, conversationId, "ou-victor", "pilot",
+				RunMode.READ_ONLY, "Workflow", "ref", false, false, Instant.now(), Instant.now(), true);
+		when(repository.findByConversation("ou-victor", conversationId)).thenReturn(Optional.of(managed));
+		when(repository.findOwnedTask("ou-victor", taskId)).thenReturn(Optional.of(managed));
+		when(repository.listOwnedTasks(eq("ou-victor"), eq(false), eq(null), org.mockito.ArgumentMatchers.anyInt()))
+				.thenReturn(List.of(managed));
+		assertThrows(WorkspaceAgentException.class,
+				() -> facade.verifyConversationAccess("ou-victor", conversationId, false));
+		facade.verifyConversationAccess("ou-victor", conversationId, true);
+		assertThrows(WorkspaceAgentException.class, () -> facade.task("ou-victor", taskId));
+		assertThrows(WorkspaceAgentException.class, () -> facade.deleteTask("ou-victor", taskId));
+		assertTrue(facade.listTasks("ou-victor", false, null).isEmpty());
+		assertThrows(WorkspaceAgentException.class,
+				() -> facade.verifyConversationAccess("ou-victor", UUID.randomUUID(), true));
+	}
+
+	@Test
+	void workflowWorkspaceIsHiddenAndCannotBeANativeChatDefault() {
+		var registry = new WorkspaceRegistry(List.of(new WorkspaceDefinition("billing", "Billing",
+				Path.of("/workspaces/billing"), false, true, null, true)));
+		assertTrue(registry.summaries().isEmpty());
+		assertThrows(IllegalArgumentException.class, () -> new WorkspaceDefinition("billing", "Billing",
+				Path.of("/workspaces/billing"), true, true, null, true));
+		assertThrows(WorkspaceAgentException.class,
+				() -> facade.createWorkflowTask("ou-victor", "pilot", "Workflow"));
+	}
+
+	@Test
+	void workflowTurnRejectsApiKeyAuthenticationBeforeTaskOrTurnCreation() {
+		WorkspaceAgentEngine paid = mock(WorkspaceAgentEngine.class);
+		when(paid.status()).thenReturn(EngineStatus.READY);
+		when(paid.account()).thenReturn(new WorkspaceAgentEngine.AccountStatus("apiKey", false, null, null, null));
+		var managedFacade = new WorkspaceAgentFacade(paid, repository,
+				new WorkspaceRegistry(List.of(new WorkspaceDefinition("billing", "Billing",
+						Path.of("/workspaces/billing"), false, true, null, true))),
+				new WorkspaceAgentPolicy("ou-victor", List.of()), publisher, "high", Duration.ofMinutes(5));
+		var failure = assertThrows(WorkspaceAgentException.class,
+				() -> managedFacade.createWorkflowTask("ou-victor", "billing", "Report"));
+		assertEquals(WorkspaceAgentException.Code.AUTHENTICATION_REQUIRED, failure.code());
+		verify(paid, never()).createTask(any(), any());
+	}
+
 	private final UUID taskId = UUID.randomUUID();
 	private final UUID conversationId = UUID.randomUUID();
 	private final UUID runId = UUID.randomUUID();

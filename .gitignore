@@ -132,12 +132,3 @@ workspaces/
 docs/
 output/
 frontend/design/prototype/
-
-# Keep the governing frontend specifications available for version control.
-!/docs/
-/docs/*
-!/docs/specs/
-/docs/specs/*
-!/docs/specs/frontend-ui-ux-revamp.md
-!/docs/specs/frontend-agent-interaction-clarity.md
-!/docs/specs/frontend-light-dark-appearance.md

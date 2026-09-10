@@ -15,8 +15,9 @@ import { CodexSidebar } from './CodexSidebar'
 import { CodexTaskPanel, type CodexSteeringUpdate } from './CodexTaskPanel'
 import { CodexTaskSetup } from './CodexTaskSetup'
 import { useCodexWorkspace } from './useCodexWorkspace'
+import { BillingInsights } from '../billing/BillingInsights'
 
-type WorkspaceView = 'conversation' | 'settings'
+type WorkspaceView = 'conversation' | 'settings' | 'billing'
 
 type SteeringDraft = {
   content: string
@@ -264,7 +265,7 @@ export function CodexWorkspace({
   const assistantAvailability = assistantReady
     ? 'Synvo H5 and Codex are ready.'
     : 'Codex needs attention. Open Settings for connection details.'
-  const title = view === 'settings' ? 'Settings' : task?.title ?? 'New Codex task'
+  const title = view === 'billing' ? 'Billing Insights' : view === 'settings' ? 'Settings' : task?.title ?? 'New Codex task'
   const taskBusy = activeRun !== null || activeOperation !== null || taskState.submitting !== null || startingTask || pendingStart !== null
   const pendingDecision = taskState.interaction !== null || activeOperation?.status === 'WAITING_FOR_INTERACTION'
   const draft = task ? steeringDrafts[task.taskId] : undefined
@@ -388,8 +389,10 @@ export function CodexWorkspace({
         collapsed={sidebarCollapsed}
         modal={phone && !sidebarCollapsed && !taskState.interaction}
         settingsActive={view === 'settings'}
+        billingActive={view === 'billing'}
+        onOpenBilling={() => { setView('billing'); setTaskPanelOpen(false); collapseSidebarForNarrowViewport(setSidebarCollapsed) }}
         tasks={taskState.tasks}
-        selectedTaskId={taskState.selectedTaskId}
+        selectedTaskId={view === 'conversation' ? taskState.selectedTaskId : null}
         archived={taskState.archived}
         busy={taskBusy}
         assistantReady={assistantReady}
@@ -420,7 +423,7 @@ export function CodexWorkspace({
           ) : <span className="workspace-topbar__folder" aria-hidden="true"><FolderIcon /></span>}
           <div className="workspace-topbar__title">
             <h1>{title}</h1>
-            {task && <p className="codex-topbar-meta">{task.workspaceName} · {task.mode === 'READ_ONLY' ? 'Read Only' : 'Edit workspace files'}</p>}
+            {view === 'conversation' && task && <p className="codex-topbar-meta">{task.workspaceName} · {task.mode === 'READ_ONLY' ? 'Read Only' : 'Edit workspace files'}</p>}
           </div>
           {view === 'conversation' && task && (
             <button
@@ -453,10 +456,11 @@ export function CodexWorkspace({
           data-artifact-open={taskPanelOpen && view === 'conversation'}
           data-codex-panel-open={taskPanelOpen && view === 'conversation'}
         >
-          {view === 'settings' ? (
+          <BillingInsights visible={view === 'billing'} />
+          {view === 'billing' ? null : view === 'settings' ? (
             <SettingsView botConnection={botConnection} busy={busy} onSignOut={onSignOut} status={taskState.status} workspaces={taskState.workspaces} />
           ) : taskState.loading ? (
-            <div className="workspace-history-state" role="status">Preparing Synvo AI Assistant…</div>
+            <div className="codex-startup-state"><div className="workspace-history-state" role="status">Preparing Synvo AI Assistant…</div></div>
           ) : !task ? (
             <CodexTaskSetup
               status={taskState.status}
