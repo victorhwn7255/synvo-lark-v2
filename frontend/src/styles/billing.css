@@ -18,8 +18,9 @@
 .billing-reading-column button:disabled { cursor: not-allowed; opacity: .6; }
 .billing-reading-column input[type="month"], .billing-reading-column textarea { width: 100%; min-width: 0; border: 1px solid var(--border-control); border-radius: .65rem; background: var(--surface); color: var(--ink); padding: .5rem .75rem; font: inherit; }
 .billing-month-fields label { flex: 1 1 12rem; }
-.billing-consent { display: flex; gap: .75rem; align-items: flex-start; }
-.billing-consent input { flex: 0 0 auto; margin-top: .35rem; width: 1.2rem; height: 1.2rem; accent-color: var(--accent-strong); }
+.billing-consent { display: flex; gap: .75rem; align-items: flex-start; line-height: 1.5; }
+.billing-consent input { flex: 0 0 auto; font: inherit; margin: .15em 0 0; width: 1.2em; height: 1.2em; accent-color: var(--accent-strong); }
+.billing-period > .button--primary { margin-top: 1rem; }
 .billing-hint, .billing-statement details, .billing-sources { color: var(--ink-soft); }
 .billing-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-block: 1.5rem; }
 .billing-metrics > div { display: flex; flex-direction: column; padding: 1rem; border: 1px solid var(--border); border-radius: .85rem; }

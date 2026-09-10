@@ -209,9 +209,8 @@ export function BillingInsights({ visible = true, api = billingApi }: { visible?
             <button type="button" aria-pressed={preset === 'custom'} onClick={() => setPreset('custom')}>Custom range</button></div>
           {preset === 'custom' && <div className="billing-month-fields"><label>First month<input type="month" required max={range.last} value={range.first} onChange={e => setRange(value => ({ ...value, first: e.target.value }))} /></label>
             <label>Last month<input type="month" required min={range.first} max={completedRange(1).last} value={range.last} onChange={e => setRange(value => ({ ...value, last: e.target.value }))} /></label></div>}
-          <p><strong>{monthLabel(range.first)} – {monthLabel(range.last)}</strong> · completed months only · compared with the preceding equal-length period when available.</p>
-          <label className="billing-consent"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />Allow Codex to read the saved billing evidence and edit files in the configured Billing workspace.</label>
-          <p className="billing-hint">Uses the existing ChatGPT subscription. Existing workspace and one-time approval limits apply; no paid API fallback.</p>
+          <p><strong>{monthLabel(range.first)}{range.first !== range.last ? ` – ${monthLabel(range.last)}` : ''}</strong> · completed months only · compared with the preceding equal-length period when available.</p>
+          <label className="billing-consent"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} /><span>Allow Codex to read the saved billing evidence and edit files in the configured Billing workspace.</span></label>
         </fieldset>
         <button className="button--primary" disabled={disabled || !consent} type="submit">{busy ? 'Submitting…' : 'Generate insights'}</button>
       </form>
@@ -219,7 +218,7 @@ export function BillingInsights({ visible = true, api = billingApi }: { visible?
       {currentReport ? <>
         <Report report={currentReport} api={api} />
         {(currentReport.analysisFailure || currentReport.pdfFailure) && <div className="billing-notice"><p>The saved facts remain available. Retry analysis uses this same snapshot without fetching Azure again.</p>
-          <label className="billing-consent"><input type="checkbox" checked={retryConsent} disabled={disabled} onChange={event => setRetryConsent(event.target.checked)} />Allow Codex to read and edit the saved Billing workspace for this retry.</label>
+          <label className="billing-consent"><input type="checkbox" checked={retryConsent} disabled={disabled} onChange={event => setRetryConsent(event.target.checked)} /><span>Allow Codex to read and edit the saved Billing workspace for this retry.</span></label>
           <button type="button" disabled={disabled || !retryConsent} onClick={() => void submit(`retry:${currentReport.id}`, async key => {
             const accepted = await api.retry(currentReport.id, key, retryConsent)
             pendingGeneration.current = accepted.id; selectionRef.current = 'new'; setSelection('new'); setReport(null); setQuestionHistory({ items: [], nextCursor: null })

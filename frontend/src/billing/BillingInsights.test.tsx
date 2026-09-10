@@ -30,6 +30,27 @@ function api() {
 }
 describe('Billing Insights', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
+  it('labels single-month drafts once and preserves ranges and explicit generation consent', async () => {
+    const client = api()
+    render(<BillingInsights api={client} />)
+    await screen.findByRole('article', { name: 'Billing analysis report' })
+    fireEvent.click(screen.getByRole('button', { name: '+ New Analysis' }))
+    const period = screen.getByRole('group', { name: 'Billing period' })
+    expect(period.querySelector('strong')?.textContent).not.toContain('–')
+    expect(screen.queryByText(/Uses the existing ChatGPT subscription/)).not.toBeInTheDocument()
+    const generate = screen.getByRole('button', { name: 'Generate insights' })
+    expect(generate).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Last 3 months' }))
+    expect(period.querySelector('strong')?.textContent).toContain(' – ')
+    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }))
+    fireEvent.change(screen.getByLabelText('First month'), { target: { value: '2026-08' } })
+    fireEvent.change(screen.getByLabelText('Last month'), { target: { value: '2026-08' } })
+    expect(period.querySelector('strong')).toHaveTextContent(/^Aug 2026$/)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Allow Codex to read the saved billing evidence and edit files in the configured Billing workspace.' }))
+    expect(generate).toBeEnabled()
+    fireEvent.click(generate)
+    await waitFor(() => expect(client.generate).toHaveBeenCalledWith('2026-08', '2026-08', expect.any(String), true))
+  })
   it.each([
     ['ANSWER_TOO_MANY_REFERENCES', 'The answer included too many evidence references.'],
     ['ANSWER_TOO_MANY_CLAIMS', 'The answer included too many numeric claims.'],

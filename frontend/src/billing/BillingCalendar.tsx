@@ -51,7 +51,9 @@ export function BillingCalendar({ visible = true, api = billingApi, onAccessErro
       if (year !== undefined && value.calendar.year !== year) throw new Error('Daily data did not match the selected year.')
       if (Date.parse(value.expiresAt) <= Date.now()) throw new BillingAccessError('This billing data has expired.')
       setFeed(value); setError(null)
-      const day = value.calendar.days.find(d => d.selectedPeriod && d.amount) ?? value.calendar.days.find(d => d.amount) ?? value.calendar.days[0]
+      const nonFuture = (day: BillingDay) => day.state !== 'FUTURE' && day.state !== 'FUTURE_RECORDED'
+      const day = value.calendar.days.findLast(d => nonFuture(d) && d.amount)
+        ?? value.calendar.days.findLast(nonFuture) ?? value.calendar.days[0]
       setSelected(previous => value.calendar.days.some(d => d.date === previous) ? previous : day.date)
       timer = window.setTimeout(load, value.refresh?.state === 'RUNNING' ? 3000 : 30000)
     }).catch(reason => {

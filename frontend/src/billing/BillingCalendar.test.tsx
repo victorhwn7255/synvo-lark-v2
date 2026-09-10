@@ -7,6 +7,37 @@ import { feedFixture } from './billingDaily.test-fixture'
 describe('Billing calendar', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
   const id = 'calendar-a'
+  it.each(['RECORDED', 'ZERO', 'NEGATIVE'] as const)('defaults to the latest %s date, ignoring report-period preference and future-dated charges', async state => {
+    const feed = feedFixture()
+    const latest = feed.calendar.days.find(day => day.date === '2026-09-08')!
+    latest.state = state; latest.amount = { exact: state === 'ZERO' ? '0' : state === 'NEGATIVE' ? '-1' : '1', display: 'USD 1.00' }
+    const future = feed.calendar.days.find(day => day.date === '2026-12-31')!
+    future.state = 'FUTURE_RECORDED'; future.amount = { exact: '2', display: 'USD 2.00' }
+    render(<BillingCalendar api={{ ...billingApi, dailyFeed: vi.fn().mockResolvedValue(feed) }} onAccessError={vi.fn()} />)
+    expect(await screen.findByLabelText('Selected day details')).toHaveTextContent('8 September 2026')
+    expect(screen.getByRole('button', { name: /^8 September 2026:/ })).toHaveAttribute('tabindex', '0')
+    expect(document.querySelectorAll('.billing-day[tabindex="0"]')).toHaveLength(1)
+  })
+  it('uses the latest non-future date when the year has no records', async () => {
+    const feed = feedFixture()
+    feed.calendar.days.forEach(day => { day.amount = null; day.state = day.date <= '2026-09-08' ? 'MISSING' : 'FUTURE' })
+    render(<BillingCalendar api={{ ...billingApi, dailyFeed: vi.fn().mockResolvedValue(feed) }} onAccessError={vi.fn()} />)
+    expect(await screen.findByLabelText('Selected day details')).toHaveTextContent('8 September 2026No recorded data')
+  })
+  it('preserves a chosen date when the feed reloads and defaults to the latest record when switching years', async () => {
+    const client = { ...billingApi, dailyFeed: vi.fn().mockResolvedValue(feedFixture()) }
+    const onAccessError = vi.fn()
+    const view = render(<BillingCalendar api={client} onAccessError={onAccessError} />)
+    expect(await screen.findByLabelText('Selected day details')).toHaveTextContent('31 August 2026')
+    fireEvent.click(screen.getByRole('button', { name: /^8 June 2026:/ }))
+    view.rerender(<BillingCalendar api={client} visible={false} onAccessError={onAccessError} />)
+    view.rerender(<BillingCalendar api={client} onAccessError={onAccessError} />)
+    await waitFor(() => expect(client.dailyFeed).toHaveBeenCalledTimes(2))
+    expect(screen.getByLabelText('Selected day details')).toHaveTextContent('8 June 2026')
+    client.dailyFeed.mockResolvedValue(feedFixture(2024))
+    fireEvent.click(screen.getByLabelText('Spending year')); fireEvent.click(screen.getByRole('option', { name: '2024' }))
+    expect(await screen.findByLabelText('Selected day details')).toHaveTextContent('31 August 2024')
+  })
   it('collapses the legend and coverage context, shows only the refresh date and keeps failure details accessible', async () => {
     const feed = { ...feedFixture(), retrievedLast: '2026-09-08T10:02:42Z', provisional: true,
       missingMonths: ['2025-09', '2025-10'], refresh: { id: 'partial', state: 'PARTIAL' as const, completed: 11, total: 13, failure: 'UNSUPPORTED_PRECISION' } }
@@ -72,14 +103,14 @@ describe('Billing calendar', () => {
   it('previews hover without latching selection and restores details when the pointer leaves the grid', async () => {
     const client = { ...billingApi, dailyFeed: vi.fn().mockResolvedValue(feedFixture()) }
     render(<BillingCalendar api={client} onAccessError={vi.fn()} />)
-    const selected = await screen.findByRole('button', { name: /^1 June 2026:/ })
+    const selected = await screen.findByRole('button', { name: /^31 August 2026:/ })
     const hovered = screen.getByRole('button', { name: /^8 June 2026:/ })
     fireEvent.mouseEnter(hovered)
     expect(screen.getByLabelText('Selected day details').querySelector('strong')).toHaveTextContent('8 June 2026')
     expect(hovered).toHaveAttribute('aria-pressed', 'false')
     expect(selected).toHaveAttribute('tabindex', '0')
     fireEvent.mouseLeave(screen.getByRole('group', { name: 'Daily costs; use arrow keys to move between days' }))
-    expect(screen.getByLabelText('Selected day details').querySelector('strong')).toHaveTextContent('1 June 2026')
+    expect(screen.getByLabelText('Selected day details').querySelector('strong')).toHaveTextContent('31 August 2026')
     fireEvent.click(hovered)
     fireEvent.mouseLeave(hovered)
     expect(screen.getByLabelText('Selected day details').querySelector('strong')).toHaveTextContent('8 June 2026')
