@@ -1762,3 +1762,25 @@ answer with 12 references, eight claims and 1,208 text characters. Native UI
 confirmed the answer and expandable citations. Persisted original report/PDF
 fingerprints and source/daily-run counts were unchanged. This verifies the repair,
 not all remaining workflow acceptance gates.
+
+## 2026-09-10 — Separate panel scrolling from the reading column
+
+Settings placed `overflow: auto` on the same max-width element that contained
+the cards. Its scrollbar consequently ran against the card edge in the middle
+of the available panel, instead of at the panel boundary. Styling the scrollbar
+alone would not fix the underlying scroll ownership.
+
+Keep the viewport-sized panel as the single scroll owner with explicit minimum
+size constraints. Put centered, padded content in a separate non-scrolling
+inner element. Reuse the themed scrollbar gutter, retain keyboard focus for
+scrolling, and check that the final expanded section remains reachable with
+bottom padding. Do not hide overflow merely to conceal a misplaced scrollbar.
+
+Verification: SettingsView regression coverage protects the separate reading
+column, focusable scroll region, honest usage states, workspace ceilings and
+busy disconnect behavior. All 251 frontend tests, typecheck, lint and build
+passed. Browser checks confirmed that PageDown changes the panel's scrollTop
+without scrolling the document or inner column, with no horizontal panel
+overflow. Dark desktop and narrow light layouts rendered correctly, including
+expanded diagnostics at the bottom. Native desktop Lark verified the deployed
+redesign without disconnecting or changing account/workspace permissions.
