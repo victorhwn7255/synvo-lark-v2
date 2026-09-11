@@ -4,8 +4,8 @@ Synvo AI Assistant is a single-user, Lark-native client for OpenAI Codex. The
 repository is intentionally one React H5 application, one Spring Boot modular
 monolith, one PostgreSQL database, and one private Python runner sidecar.
 
-The current codebase includes the completed Phases 0 through 3. Phase 3,
-**Codex in Lark**, was completed on 2026-08-24 and provides:
+The current codebase includes the completed foundation Phases 0 through 3.
+Foundation Phase 3, **Codex in Lark**, was completed on 2026-08-24 and provides:
 
 ```text
 Lark Chat (deferred) --\
@@ -25,7 +25,9 @@ authorization, workspace policy, audit, persistence, and the one-active-turn
 lease. The runner hides the pinned stable App Server protocol and local tool
 execution behind a narrow Synvo contract. Enterprise Knowledge Research,
 Drive retrieval, citations, Meeting-to-Execution, and the first opinionated
-Synvo workplace workflow remain outside Phase 3.
+Synvo workplace workflow remain outside that foundation phase. The repository
+also includes [Billing Insights](#billing-insights-workflow), whose separate
+workflow Phases 1–3 are complete for an approved desktop-only local pilot.
 
 The completed H5 experience includes:
 
@@ -55,12 +57,89 @@ remain unavailable rather than being converted into broad approval prompts.
 - Agent engine: exact `gpt-5.6-sol` through pinned `@openai/codex` /
   `codex-cli 0.148.0` App Server; the private runner uses direct stable stdio
   JSON-RPC and does not use the public Python SDK
-- Database: PostgreSQL 18 with committed Flyway migrations V1 through V6
+- Database: PostgreSQL 18 with Flyway migrations V1 through V10, including
+  billing evidence, workflow-managed tasks, reports, and independent daily spending
 - Local runtime: Docker Compose
 
 The lightweight product requirements and architecture reference is
 [`docs/project-overview.md`](docs/project-overview.md). Authoritative phase
 specifications live in [`docs/specs/`](docs/specs/).
+
+## Billing Insights workflow
+
+`wf-billing-insights` helps the authorized user understand Azure spending,
+investigate changes, and download evidence-backed reports inside Lark H5.
+Open **Workflows → Billing Insights** in the existing sidebar.
+
+### Implemented capabilities
+
+- **Read-only Azure retrieval** — Java retrieves actual-cost data and invoice
+  metadata for one configured Microsoft Customer Agreement (MCA) billing
+  profile, using certificate-based Microsoft Entra authentication.
+- **Billing periods and comparisons** — Analyze the last 1, 3, or 6 completed
+  months, or a custom 1–6-month range. Compare against the immediately preceding
+  equal-length period when available; missing comparison data is not zero.
+- **Exact financial facts** — Java `BigDecimal` calculations produce service,
+  subscription, monthly, and comparison totals. Invoice reconciliation keeps
+  tax, credits, profile adjustments, exclusions, and unresolved attribution
+  separate. The initial supported currency is USD; no currency conversion or
+  actual/amortized cost mixing is performed.
+- **Protected evidence** — PostgreSQL stores normalized billing records and
+  immutable report snapshots with source versions, timestamps, and integrity
+  hashes. Authorization, expiry, bounded retrieval, and duplicate-request
+  protection apply independently of model execution.
+- **Workspace-based analysis** — After explicit workspace consent, saved
+  `manifest.json`, `facts.json`, and `evidence.jsonl` are analyzed through the
+  existing subscription-backed Codex integration. Java validates the structured
+  analysis and financial claims before publishing the report; there is no paid
+  API fallback or separate agent harness.
+- **Reports and PDFs** — Review executive summaries, cost breakdowns, changes,
+  invoice coverage, evidence references, and qualified optimization priorities.
+  Download a paginated PDF generated from the saved report.
+- **Saved analyses and follow-up questions** — Switch between saved reports,
+  start a clean draft with **+ New Analysis**, or return with **Back**. Questions
+  remain bound to their report and saved evidence; they do not automatically
+  fetch new Azure data. Earlier reports and conversations remain unchanged.
+- **Progress and recovery** — Agent activity, Stop, safe failure messages,
+  factual fallback, and same-snapshot retries expose the request lifecycle
+  without discarding valid saved facts.
+- **Daily Azure Spending** — A contribution-style yearly calendar visualizes
+  recorded daily costs with five distribution-based blue shades, daily service
+  breakdowns, year selection, loading skeletons, and a collapsible legend.
+  Selection defaults to the latest recorded non-future date in the chosen year.
+- **Independent daily refresh** — The calendar has its own user-triggered
+  retrieval pipeline, separate from report generation. Durable month-partition
+  checkpoints support catch-up, corrections, and resumable failures while
+  preserving last-good data. Refresh replaces validated partitions rather than
+  adding duplicate daily totals; opening the page or changing years does not
+  trigger an Azure fetch.
+
+### Phase status and limitations
+
+- **Phase 1 — Experience and design:** complete; accepted interactive prototype,
+  report structure, period selection, and light/dark responsive designs.
+- **Phase 2 — Azure integration and billing accuracy:** complete; authorized
+  retrieval, exact calculations, protected persistence, and live invoice
+  reconciliation verified for the approved sample periods.
+- **Phase 3 — End-to-end H5 workflow:** complete for the **desktop-only local
+  pilot**, signed off on 2026-09-08. Live verification includes report/PDF
+  generation, five grounded follow-up questions, and report persistence.
+- **Phase 4 — Optimization and production readiness:** not implemented or
+  approved. Broader release, actual-phone Lark acceptance, remaining native
+  accessibility checks, and richer optimization evidence remain gated.
+
+Source costs can be provisional and invoice reconciliation can be unavailable.
+Missing daily records are not estimates or zero spending; the September–October
+2025 daily-history gap was explicitly accepted for the pilot. Optimization
+sections identify investigation candidates, not verified savings. The workflow
+does not modify Azure resources, buy commitments, change permissions, or execute
+recommendations. Daily refresh does not invoke Codex.
+
+See the [workflow charter](docs/specs/wf-billing-insights/README.md),
+[four-phase build plan](docs/specs/wf-billing-insights/build-plan.md),
+[Phase 3 specification and audit](docs/specs/wf-billing-insights/phase-3-h5-reports-and-investigation.md),
+[daily refresh contract](docs/specs/wf-billing-insights/daily-spending-independent-refresh.md),
+and [desktop-pilot sign-off](docs/specs/wf-billing-insights/phase-3-signoff-review.md).
 
 ## Run the ordinary local stack
 
@@ -178,7 +257,9 @@ SYNVO_CODEX_ALLOWED_MCP_SERVERS=
 H5 can select Finance, Products, or Sales for each new task. The retained
 native Lark Chat integration defaults to Products if it is reactivated for
 future verification. Every task remains permanently bound to its selected
-workspace, and the runner receives only the three explicit folder mounts.
+workspace. This overlay supplies three explicit business-folder mounts; the
+optional Billing Insights overlay adds a separate workflow-managed Billing
+workspace rather than an unrestricted host path.
 
 Validate and build the enabled topology with both Compose files:
 
@@ -235,6 +316,38 @@ tasks can write only inside the configured mount. The legacy Phase 2
 Nemotron/Spring AI/NVIDIA code path remains present but disabled; it is not part
 of the supported Phase 3 runtime. Do not enable it for Codex verification.
 
+## Enable Billing Insights locally
+
+Billing remains disabled in the ordinary stack. Before enabling it, follow the
+[billing operator runbook](docs/specs/wf-billing-insights/phase-2-operator-runbook.md)
+and [source/configuration contract](docs/specs/wf-billing-insights/phase-2-source-contract.md).
+Configure the exact authorized MCA account/profile and certificate paths privately
+using [`.env.example`](.env.example). Verify storage/backup policy, read-only Azure
+permissions, and company approval for billing-data processing by the configured
+model provider. Never commit credentials or print interpolated Compose settings.
+
+The full H5 workflow requires the existing Lark session and Codex subscription
+setup, plus a pre-created private, group-shared `workspaces/Billing` directory
+accessible to the backend and runner. The billing overlay mounts Azure certificate
+files into the backend only; the workflow overlay shares derived evidence with
+the existing runner without changing its sandbox or network limits. The Billing
+directory is not a new read-isolation boundary.
+
+After completing that preflight, validate and start with all four overlays:
+
+```bash
+docker compose -f compose.yaml -f compose.codex.yaml \
+  -f compose.billing.yaml -f compose.billing-workflow.yaml config --quiet
+docker compose -f compose.yaml -f compose.codex.yaml \
+  -f compose.billing.yaml -f compose.billing-workflow.yaml up --detach --build --wait
+```
+
+Starting the stack does not authorize or initiate a live billing campaign.
+**Generate insights** starts a report request; the calendar's **Refresh** button
+starts an independent daily-data request. Live acceptance requires explicit
+authorization and is not part of the ordinary synthetic test suite. Preserve
+existing database volumes and do not restart services during active work.
+
 ## Temporary HTTPS access for H5
 
 The bot's outbound WebSocket does not need a public callback URL. The H5 page
@@ -266,11 +379,11 @@ Do not save the tunnel URL or ngrok credentials in the repository. Stop ngrok
 with `Ctrl+C` after the H5 test; the ordinary Compose stack continues to work
 without it.
 
-## Phase 3 completion and verification
+## Foundation Phase 3 completion and verification
 
 Phase 3 is complete. Its redacted Completion Audit is recorded in
 [`docs/specs/phase-3-codex-in-lark.md`](docs/specs/phase-3-codex-in-lark.md).
-The final verification established:
+The historical foundation closeout verification established:
 
 - 61 runner tests passed;
 - 237 backend tests passed through both `./mvnw test` and `./mvnw package`;
